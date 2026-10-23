@@ -6,6 +6,9 @@ Open-source static analysis tool for detecting Clock Domain Crossing (CDC) issue
 
 - Verilog/SystemVerilog parsing via [slang](https://github.com/MikePopoloski/slang)
 - Verilog-2001 (`.v`) and SystemVerilog (`.sv`) support
+- Gate-level **netlist analysis** (`--input-type netlist`): a separate structural
+  frontend parses post-synthesis `.v` and routes it through the same analyzer,
+  with YAML cell maps for cell/pin classification ([docs/netlist.md](docs/netlist.md))
 - Clock domain inference from explicit clock ports
 - Gated and muxed clock resolution to root clocks
 - Register-to-register CDC crossing detection
@@ -51,6 +54,9 @@ ctest --test-dir build --output-on-failure
 ```bash
 # Basic check
 opencdc check design.sv --top top_module
+
+# Gate-level netlist (auto-detected; force + cell map if needed)
+opencdc check synthesized.v --top top --input-type netlist --cell-map cells.yaml
 
 # JSON output to file
 opencdc check design.sv --top top --format json --out report.json
@@ -153,6 +159,7 @@ See [docs/ci.md](docs/ci.md) for GitHub Actions, GitLab CI, and best practices.
 ## Documentation
 
 - [Architecture](docs/architecture.md) — pipeline and module design
+- [Netlist Analysis](docs/netlist.md) — gate-level netlist support and cell maps
 - [Rules](docs/rules.md) — rule reference and configuration
 - [Waivers](docs/waivers.md) — waiver format and usage
 - [CI Integration](docs/ci.md) — pipeline integration examples

@@ -1,6 +1,8 @@
 # Netlist Frontend — Implementation Plan
 
-Status: proposed
+Status: implemented — PR1–PR7 complete; MVP (Phases 0–4) met with zero RTL
+regressions. Multi-bit bus regrouping, Liberty import, and RTL→netlist name
+mapping remain open (see Phase 6 / Known limitations).
 Goal: analyze gate-level (post-synthesis) netlists with the existing OpenCDC
 pipeline by adding a second frontend behind the `ir::Graph` seam, without
 changing RTL behavior.
@@ -234,8 +236,8 @@ New: `src/frontend/netlist/{netlist_lexer,netlist_parser,netlist_adapter}.{h,cpp
       output (abc inserts many buffers/passthrough nets).
   - **Audit `--jobs` parallelism path in `cdc/crossing.cpp` with netlist-sized
     graphs; determinism test already exists (`thread_determinism_test.cpp`).
-    [determinism test passes on netlist graphs; no netlist-specific change
-    required.]**
+    [deferred alongside string-interning: perf targets already met, so the
+    audit was not required for the MVP; the existing determinism suite passes.]**
 
 ## Phase 6 — Stretch (post-MVP)
 

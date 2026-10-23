@@ -17,8 +17,10 @@ Source Files (.sv/.v)
          │
          ▼
 ┌─────────────────┐
-│ Slang Frontend │  Parse SV/V, build IR graph
-│ (SlangAdapter) │  Registers, clocks, resets
+│ Frontend        │  Select by --input-type:
+│ (IFrontend)     │  RTL → SlangAdapter (slang),
+│                 │  Netlist → NetlistAdapter;
+│                 │  both build the same IR graph
 └─────────┬───────┘
          │
          ▼
@@ -90,6 +92,8 @@ Source Files (.sv/.v)
 
 Note: pattern recognition, blackbox registry, and module-tree
 construction run inside the Patterns+Resolve stage (see Analyzer::run).
+The frontend is chosen by input type (RTL vs. gate-level netlist); see
+[docs/netlist.md](netlist.md).
 
 
 ## Module Map
@@ -97,10 +101,19 @@ construction run inside the Patterns+Resolve stage (see Analyzer::run).
 ```
 src/
 ├── ir/                    # Intermediate Representation
-│   └── graph.h/cpp        # Directed graph: registers/ports/nets/combinational + edges
+│   ├── graph.h/cpp        # Directed graph: registers/ports/nets/combinational + edges
+│   └── compact.h/cpp      # Netlist-only compaction (buffers/pass-through nets)
 │
-├── frontend/              # Language Frontend
-│   └── slang_adapter.h/cpp # Slang parser bridge, AST walking
+├── frontend/              # Language Frontend (behind the IFrontend seam)
+│   ├── frontend.h/cpp     # IFrontend contract, InputType, input detection, limits
+│   ├── slang_adapter.h/cpp # Slang parser bridge, AST walking (RTL)
+│   └── netlist/           # Structural gate-level netlist frontend
+│       ├── netlist_lexer.h/cpp   # Purpose-built Verilog-2001 subset lexer
+│       ├── netlist_parser.h/cpp  # Structural parser (modules/instances/assigns)
+│       └── netlist_adapter.h/cpp # IR builder, clock resolve, compaction
+│
+├── cell/                  # Netlist Cell Library
+│   └── cell_library.h/cpp # YAML cell maps, glob classification, built-in defaults
 │
 ├── clock/                 # Clock Analysis
 │   ├── domain.h/cpp       # Clock domain extraction
@@ -153,18 +166,25 @@ The IR graph is a directed graph where:
   - `clock_domain` — name of the clock driving this register
   - `root_clock` — resolved root clock (after ClockResolver)
   - `clock_is_gated` / `clock_is_muxed` — clock properties
-  - `logic_type` / `logic_inputs` — combinational function (And/Or/Xor/Not/Mux/GrayEncoder/...)
+  - `logic_type` / `logic_inputs` — combinational function (And/Or/Xor/Not/Buf/Mux/GrayEncoder/...)
   - `is_gray_coded` / `is_handshake_signal` / `is_async_fifo_ptr` — pattern flags
   - `value_uncertain` — uncertainty propagation marker
   - `reset_signal` — name of the reset signal (if any)
+  - `is_latch` — level-sensitive latch (set by the netlist frontend; RTL never sets it)
   - `width` — bit width
   - `loc` — source location (file, line, column)
 
 - **Edges** represent data flow from source register to destination register.
 
+For **netlist input**, nodes are bit-blasted: each register has width 1, an
+internal `bus[i]` reference resolves to its own per-bit `Net` node (so
+cross-bit connectivity is never fabricated), and top-level ports remain single
+whole-width nodes. The RTL frontend never sets `is_latch` and keeps registers
+at their declared bus width.
+
 ## Key Design Decisions
 
-1. **Bounded analysis**: Graph (500k nodes / 1M edges) and path limits (depth 50, 10k paths) prevent unbounded memory use; truncation is reported as CDC010 and sets `analysis_status=incomplete` with `SignoffStatus::Incomplete`.
+1. **Bounded analysis**: Graph safety limits (500k nodes / 1M edges for RTL, raised to 5M / 10M for netlist input via `Graph::set_limits`) and path limits (depth 50, 10k paths) prevent unbounded memory use; truncation is reported as CDC010 and sets `analysis_status=incomplete` with `SignoffStatus::Incomplete`.
 
 2. **Structural pattern matching**: Pattern recognition uses graph shape and explicit logic annotations; incomplete frontend information can still produce false positives or negatives.
 
@@ -173,3 +193,5 @@ The IR graph is a directed graph where:
 4. **False-path support**: Users can specify false paths via CLI, config, or SDC/YAML constraints to suppress intentional crossings.
 
 5. **Reset crossing control**: `suppress_reset_crossings` config suppresses CDC009 reset-domain findings; `reset_policy` tunes CDC007 escalation.
+
+6. **One IR, two frontends**: RTL (slang) and gate-level netlist (purpose-built structural parser) are separate `IFrontend` implementations that emit the same `ir::Graph`, so every downstream rule/report/waiver works unchanged on either. Input type is detected conservatively in favor of RTL, unknown netlist cells are opaque (never assumed safe), and the netlist frontend runs the same `ClockResolver` pass — keeping findings consistent across frontends ([docs/netlist.md](netlist.md)).
