@@ -224,6 +224,53 @@ const Node* Graph::find_node(uint64_t id) const {
     return &nodes_[it->second];
 }
 
+void Graph::remove_nodes(const std::vector<uint64_t>& dead_ids) {
+    if (dead_ids.empty())
+        return;
+    std::unordered_set<uint64_t> dead(dead_ids.begin(), dead_ids.end());
+
+    // Drop dead nodes; surviving node ids are unchanged (only their vector
+    // index shifts), so every id reference in Node fields stays valid.
+    std::vector<Node> kept;
+    kept.reserve(nodes_.size());
+    for (auto& n : nodes_) {
+        if (dead.count(n.id))
+            continue;
+        kept.push_back(std::move(n));
+    }
+    nodes_ = std::move(kept);
+
+    // Rebuild node indices.
+    id_to_idx_.clear();
+    name_to_idx_.clear();
+    id_to_idx_.reserve(nodes_.size());
+    name_to_idx_.reserve(nodes_.size());
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+        id_to_idx_[nodes_[i].id] = i;
+        name_to_idx_[nodes_[i].hier_name] = i;
+    }
+
+    // Drop edges incident to dead nodes and rebuild adjacency + dedup set.
+    std::vector<Edge> kept_edges;
+    kept_edges.reserve(edges_.size());
+    for (const auto& e : edges_) {
+        if (dead.count(e.from_id) || dead.count(e.to_id))
+            continue;
+        kept_edges.push_back(e);
+    }
+    edges_ = std::move(kept_edges);
+    adj_.clear();
+    radj_.clear();
+    edge_set_.clear();
+    for (const auto& e : edges_) {
+        adj_[e.from_id].push_back(e.to_id);
+        radj_[e.to_id].push_back(e.from_id);
+        if (e.from_id <= UINT32_MAX && e.to_id <= UINT32_MAX)
+            edge_set_.insert((e.from_id << 32) | e.to_id);
+    }
+    mark_dirty();
+}
+
 Node* Graph::find_node_mutable(uint64_t id) {
     auto it = id_to_idx_.find(id);
     if (it == id_to_idx_.end())

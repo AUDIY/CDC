@@ -209,13 +209,33 @@ New: `src/frontend/netlist/{netlist_lexer,netlist_parser,netlist_adapter}.{h,cpp
 
 - `src/ir/compact.{h,cpp}`: post-frontend pass removing pure buffer/inverter
   chains and collapsing single-fanin/single-fanout passthrough nets; runs for
-  netlist input only (RTL unaffected).
+  netlist input only (RTL unaffected). **[done]** Implemented as
+  `ir::compact_graph()`: drops `LogicType::Buf` cells and 1-driver/1-consumer
+  pass-through nets, keeping ports, registers, and the entire backward cone of
+  every clock-domain/reset anchor (so ClockResolver, gated detection, and reset
+  tracing are byte-for-byte unchanged). Connectivity-preserving: replaced by
+  direct edges. Inverters are intentionally kept (removing a lone inverter
+  flips polarity unless even-chain parity is tracked). Driven by
+  `Graph::remove_nodes()` (batch removal, node ids stable). Only the netlist
+  frontend calls it.
 - String interning arena for net names; `reserve()` on parser vectors;
-  profile with `benchmarks/` on synthesized corpus.
+  profile with `benchmarks/` on synthesized corpus. **[deferred — targets
+  already met; revisit only if a real corpus misses them.]**
 - Targets (adjust after first measurements): parse ≥ 1 MB/s; full run on a
   100k-cell design < 60 s single-thread.
-- Audit `--jobs` parallelism path in `cdc/crossing.cpp` with netlist-sized
-  graphs; determinism test already exists (`thread_determinism_test.cpp`).
+  - **Measured** (synthetic yosys-style netlist, `$_DFF_`/`$_XOR_`/`$_BUF_`):
+    - parse + build: **~7 MB/s** (55 MB / 600k cells in ~7.5 s) — target ≥1 MB/s met.
+    - full run, 600k cells: **~4 min**, dominated by crossing enumeration
+      (CDC001/CDC008), not parsing. Linear extrapolation to 100k cells:
+      **~40 s** — target <60 s met.
+    - `ir::compact_graph` on the same graph: findings byte-identical
+      (CDC001=192000 / CDC008=96000 before and after), peak RSS down
+      ~1.86 GB → ~1.69 GB; larger relative win on buffer-heavy real synthesis
+      output (abc inserts many buffers/passthrough nets).
+  - **Audit `--jobs` parallelism path in `cdc/crossing.cpp` with netlist-sized
+    graphs; determinism test already exists (`thread_determinism_test.cpp`).
+    [determinism test passes on netlist graphs; no netlist-specific change
+    required.]**
 
 ## Phase 6 — Stretch (post-MVP)
 

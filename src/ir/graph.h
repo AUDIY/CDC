@@ -122,6 +122,13 @@ class Graph {
     void add_edge(uint64_t from_id, uint64_t to_id);
     void add_edge(uint64_t from_id, uint64_t to_id, EdgeRole role);
 
+    // Remove a batch of nodes and every edge incident to them. Node ids are
+    // stable (they are only removed, never renumbered), so references held in
+    // Node fields such as `logic_inputs` stay valid for the surviving nodes.
+    // Used by the netlist compaction pass (ir/compact.h); the graph is left in
+    // a fully consistent state (indices and adjacency rebuilt).
+    void remove_nodes(const std::vector<uint64_t>& dead_ids);
+
     const Node* find_node(uint64_t id) const;
     Node* find_node_mutable(uint64_t id);
     const Node* find_node_by_name(const std::string& hier_name) const;

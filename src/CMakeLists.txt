@@ -1,6 +1,7 @@
 set(OPENCDC_CORE_SOURCES
     main.cpp
     ir/graph.cpp
+    ir/compact.cpp
     ir/module_tree.cpp
     cell/cell_library.cpp
     frontend/frontend.cpp

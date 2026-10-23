@@ -8,6 +8,7 @@
 
 #include "clock/resolve.h"
 #include "frontend/netlist/netlist_parser.h"
+#include "ir/compact.h"
 
 namespace opencdc::frontend::netlist {
 
@@ -632,6 +633,12 @@ FrontendResult NetlistAdapter::elaborate(const std::vector<std::string>& files,
             "netlist: graph exceeded safety limit during build; analysis incomplete");
         return result;
     }
+
+    // Collapse identity buffer cells and pass-through data nets so large
+    // synthesized graphs stay cheap to traverse. Clock / reset structure is
+    // preserved (see ir/compact.h); registers, ports, and reachability are
+    // untouched, so findings are identical to the uncompacted graph.
+    ir::compact_graph(result.graph);
 
     auto validation = result.graph.validate();
     if (!validation.ok()) {
