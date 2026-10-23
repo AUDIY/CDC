@@ -138,6 +138,32 @@ CellLibrary CellLibrary::with_defaults() {
     lib.add({"MUX*", CellKind::Comb});
     lib.add({"AOI*", CellKind::Comb});
     lib.add({"OAI*", CellKind::Comb});
+
+    // Yosys generic gate-level cells (output of `write_verilog` after
+    // `synth`/`abc -g`). Recognized so post-yosys netlists classify without a
+    // custom map. Reset variants carry the R pin and are marked DffReset. The
+    // generic entry records the reset net but assumes active-high polarity; a
+    // custom cell map with per-pattern reset_active_low refines polarity for
+    // signoff (it does not affect crossing/domain detection).
+    lib.add({"$_DFF_*", CellKind::Dff});
+    lib.add({"$_SDFF_*", CellKind::Dff});
+    lib.add({"$_DFFE_*", CellKind::DffEnable});
+    lib.add({"$_DFF_P?0_", CellKind::DffReset});
+    lib.add({"$_DFF_P?1_", CellKind::DffReset});
+    lib.add({"$_DFF_N?0_", CellKind::DffReset});
+    lib.add({"$_DFF_N?1_", CellKind::DffReset});
+    lib.add({"$_DLATCH_*", CellKind::Latch});
+    lib.add({"$_AND_*", CellKind::Comb});
+    lib.add({"$_NAND_*", CellKind::Comb});
+    lib.add({"$_OR_*", CellKind::Comb});
+    lib.add({"$_NOR_*", CellKind::Comb});
+    lib.add({"$_XOR_*", CellKind::Comb});
+    lib.add({"$_XNOR_*", CellKind::Comb});
+    lib.add({"$_MUX_*", CellKind::Comb});
+    lib.add({"$_AOI*", CellKind::Comb});
+    lib.add({"$_OAI*", CellKind::Comb});
+    lib.add({"$_NOT_*", CellKind::Inverter});
+    lib.add({"$_BUF_*", CellKind::Buffer});
     return lib;
 }
 

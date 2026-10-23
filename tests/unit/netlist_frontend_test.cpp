@@ -86,6 +86,35 @@ TEST(NetlistFrontendTest, GatedClockCrossingReportsCdc004) {
     EXPECT_EQ(f->severity, "warning");
 }
 
+TEST(NetlistFrontendTest, BitBlastedBusHasNoCrossBitCrossings) {
+    // A 4-bit bus crossing bit-blasted into per-bit flops must yield exactly
+    // 4 crossings (u[i] -> v[i]), NOT 16. Guards against collapsing `bus[i]`
+    // into one shared net node, which fabricates cross-bit paths.
+    AnalysisRequest req;
+    req.input_files = {fx("bus_crossing.v")};
+    req.top_module = "bus_crossing";
+    req.input_type = InputType::Netlist;
+    Analyzer analyzer;
+    auto result = analyzer.run(req);
+    ASSERT_TRUE(result.ok) << (result.errors.empty() ? "" : result.errors.front());
+
+    int crossings = 0;
+    for (const auto& f : result.findings) {
+        if (f.rule_id != "CDC001")
+            continue;
+        ++crossings;
+        // u<i> -> v<i>: the trailing bit index must match (no cross-bit paths).
+        ASSERT_FALSE(f.source_reg_name.empty());
+        ASSERT_FALSE(f.dest_reg_name.empty());
+        EXPECT_EQ(f.source_reg_name.back(), f.dest_reg_name.back())
+            << "cross-bit crossing: " << f.source_reg_name << " -> "
+            << f.dest_reg_name;
+        EXPECT_EQ(f.source_reg_name.front(), 'u');
+        EXPECT_EQ(f.dest_reg_name.front(), 'v');
+    }
+    EXPECT_EQ(crossings, 4);
+}
+
 TEST(NetlistFrontendTest, AutoDetectionEndToEnd) {
     // InputType::Auto should classify the structural netlist and analyze it.
     AnalysisRequest req;

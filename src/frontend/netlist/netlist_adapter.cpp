@@ -118,6 +118,24 @@ std::vector<std::string> with_explicit(const std::string& explicit_pin,
     return v;
 }
 
+// Strip a trailing `[bit]` (or `[msb:lsb]`) select to get the base net name.
+std::string strip_bit(const std::string& name) {
+    size_t i = name.find('[');
+    return i == std::string::npos ? name : name.substr(0, i);
+}
+
+// The node identity for a net reference. Bit-selects of internal nets are
+// distinct nodes (`bus[0]` vs `bus[1]`) so cross-bit connectivity is not
+// fabricated; whole-net references map to the base name. Ports are resolved to
+// their single port node regardless of bit (see GraphBuilder::get_net_node).
+std::string signal_of(const NetRef& ref) {
+    if (ref.kind != NetRef::Kind::Net)
+        return "";
+    if (ref.has_bit)
+        return ref.net + "[" + std::to_string(ref.bit) + "]";
+    return ref.net;
+}
+
 class GraphBuilder {
    public:
     GraphBuilder(ir::Graph& graph, const NetlistModule& mod, const cell::CellLibrary& lib,
@@ -140,9 +158,9 @@ class GraphBuilder {
     void alias(const std::string& driven, const std::string& driver) {
         if (driven.empty() || driver.empty() || driven == driver)
             return;
-        if (ports_.count(driven)) {
+        if (ports_.count(strip_bit(driven))) {
             // A top-level port keeps its own node; record the feed for later.
-            port_feed_[driven] = driver;
+            port_feed_[strip_bit(driven)] = driver;
             return;
         }
         std::string rd = find(driven);
@@ -155,15 +173,19 @@ class GraphBuilder {
         return ir::SourceLoc{filename_, static_cast<uint32_t>(line), 0};
     }
     uint32_t net_width(const std::string& name) const {
+        if (name.find('[') != std::string::npos)
+            return 1;  // per-bit node
         auto it = net_width_.find(name);
         return it != net_width_.end() ? it->second : 1;
     }
 
     uint64_t port_node(const std::string& name);
     uint64_t net_node(const std::string& name);
-    // Node id for a net reference, resolving aliases and ports.
+    // Node id for a net reference, resolving aliases, bits, and ports.
     uint64_t get_node(const NetRef& ref);
-    uint64_t get_net_node(const std::string& net);
+    // Node id for a signal string (`base` or `base[bit]`), resolving aliases
+    // and collapsing any bit of a top-level port to the single port node.
+    uint64_t get_net_node(const std::string& signal);
 
     void build_assign_aliases();
     void process_instance(const Instance& inst, std::vector<std::string>& warnings);
@@ -208,12 +230,12 @@ uint64_t GraphBuilder::net_node(const std::string& name) {
     return id;
 }
 
-uint64_t GraphBuilder::get_net_node(const std::string& net) {
-    std::string r = find(net);
+uint64_t GraphBuilder::get_net_node(const std::string& signal) {
+    std::string r = find(signal);
     if (r.empty())
         return 0;
-    if (ports_.count(r))
-        return port_node(r);
+    if (ports_.count(strip_bit(r)))
+        return port_node(strip_bit(r));
     return net_node(r);
 }
 
@@ -225,15 +247,16 @@ uint64_t GraphBuilder::get_node(const NetRef& ref) {
         // concat refs for edges. Return 0.
         return 0;
     }
-    return get_net_node(ref.net);
+    return get_net_node(signal_of(ref));
 }
 
 void GraphBuilder::build_assign_aliases() {
     for (const auto& a : mod_.assigns) {
-        // Only simple `x = y` (both plain net refs) alias cleanly. Bit-select
-        // and concat assigns get an explicit net + edges instead (below).
+        // Simple `x = y` (both plain net refs) alias by signal identity so
+        // bit-selects resolve to the correct per-bit node. Concat/const RHS are
+        // handled with explicit edges in build() pass 2.
         if (a.lhs.kind == NetRef::Kind::Net && a.rhs.kind == NetRef::Kind::Net) {
-            alias(a.lhs.net, a.rhs.net);
+            alias(signal_of(a.lhs), signal_of(a.rhs));
         }
     }
 }
@@ -368,9 +391,9 @@ void GraphBuilder::process_sequential(const Instance& inst, const cell::CellDef*
     }
 
     // Latches use the gate/enable net as their "clock"; flops use the clock.
-    std::string clk_net = find(clk->net.net);
+    std::string clk_net = find(signal_of(clk->net));
     if (k == cell::CellKind::Latch && en && en->net.kind == NetRef::Kind::Net)
-        clk_net = find(en->net.net);
+        clk_net = find(signal_of(en->net));
 
     uint64_t reg = graph_.add_register(inst.inst_name, clk_net, /*width=*/1, loc(inst.line),
                                        /*module_path=*/"", inst.cell_type);
@@ -386,7 +409,7 @@ void GraphBuilder::process_sequential(const Instance& inst, const cell::CellDef*
     if (rst && rst->net.kind == NetRef::Kind::Net) {
         ir::Node* n = graph_.find_node_mutable(reg);
         if (n) {
-            n->reset_signal = find(rst->net.net);
+            n->reset_signal = find(signal_of(rst->net));
             bool active_low = def && def->reset_active_low;
             n->reset_pol = active_low ? ir::ResetPolarity::ActiveLow : ir::ResetPolarity::ActiveHigh;
             n->is_async_reset = def && def->reset_async;
@@ -402,7 +425,7 @@ void GraphBuilder::process_sequential(const Instance& inst, const cell::CellDef*
     }
     // Output edge: register -> Q net.
     if (q && q->net.kind == NetRef::Kind::Net) {
-        uint64_t qn = get_net_node(q->net.net);
+        uint64_t qn = get_node(q->net);
         if (qn)
             graph_.add_edge(reg, qn, EdgeRole::Data);
     }
@@ -426,7 +449,7 @@ void GraphBuilder::process_icg(const Instance& inst, const cell::CellDef* def,
     }
 
     uint64_t clk_n = get_node(clk->net);
-    uint64_t out_n = get_net_node(out->net.net);
+    uint64_t out_n = get_node(out->net);
     std::vector<uint64_t> inputs;
     if (clk_n)
         inputs.push_back(clk_n);
@@ -487,7 +510,7 @@ void GraphBuilder::process_comb(const Instance& inst, const cell::CellDef* def, 
     uint64_t comb = graph_.add_combinational(inst.inst_name, lt, inputs, /*width=*/1,
                                              loc(inst.line), "", inst.cell_type);
     if (comb && out && out->net.kind == NetRef::Kind::Net) {
-        uint64_t on = get_net_node(out->net.net);
+        uint64_t on = get_node(out->net);
         if (on)
             graph_.add_edge(comb, on, EdgeRole::Data);
     }
@@ -520,7 +543,7 @@ void GraphBuilder::process_gate_primitive(const Instance& inst,
     uint64_t node = graph_.add_combinational(inst.inst_name, lt, inputs, /*width=*/1,
                                              loc(inst.line), "", g);
     if (node && out.kind == NetRef::Kind::Net) {
-        uint64_t on = get_net_node(out.net);
+        uint64_t on = get_node(out);
         if (on)
             graph_.add_edge(node, on, EdgeRole::Data);
     }

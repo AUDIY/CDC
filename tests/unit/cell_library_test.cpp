@@ -150,5 +150,21 @@ TEST(CellLibraryTest, LoadFromYamlErrors) {
     EXPECT_FALSE(err.empty());
 }
 
+TEST(CellLibraryTest, ClassifiesYosysGenericCells) {
+    // Post-yosys `write_verilog` output uses these escaped generic cell names.
+    CellLibrary lib = CellLibrary::with_defaults();
+    EXPECT_EQ(lib.classify("$_DFF_P_"), CellKind::Dff);
+    EXPECT_EQ(lib.classify("$_DFFE_PN0P_"), CellKind::DffEnable);
+    EXPECT_EQ(lib.classify("$_DFF_PN0_"), CellKind::DffReset);
+    EXPECT_EQ(lib.classify("$_DLATCH_N_"), CellKind::Latch);
+    EXPECT_EQ(lib.classify("$_AND_"), CellKind::Comb);
+    EXPECT_EQ(lib.classify("$_NAND_"), CellKind::Comb);
+    EXPECT_EQ(lib.classify("$_MUX_"), CellKind::Comb);
+    EXPECT_EQ(lib.classify("$_NOT_"), CellKind::Inverter);
+    EXPECT_EQ(lib.classify("$_BUF_"), CellKind::Buffer);
+    // Longest-match: reset variant beats the plain DFF pattern.
+    EXPECT_EQ(lib.classify("$_DFF_NN1_"), CellKind::DffReset);
+}
+
 }  // namespace
 }  // namespace opencdc::cell
