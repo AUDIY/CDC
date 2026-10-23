@@ -1,6 +1,7 @@
 add_executable(opencdc_unit_tests
     cli_test.cpp
     graph_test.cpp
+    cell_library_test.cpp
     domain_test.cpp
     crossing_test.cpp
     sync_test.cpp
