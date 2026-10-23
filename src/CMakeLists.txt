@@ -2,6 +2,7 @@ set(OPENCDC_CORE_SOURCES
     main.cpp
     ir/graph.cpp
     ir/module_tree.cpp
+    frontend/frontend.cpp
     frontend/slang_adapter.cpp
     clock/domain.cpp
     clock/resolve.cpp

@@ -75,6 +75,14 @@ struct Config {
     int min_sync_stages = 2;
     bool require_structural_proof = false;
     bool allow_user_annotation = true;
+    // Input frontend selection: "auto" (default), "rtl", or "netlist".
+    // CLI --input-type overrides this.
+    std::string input_type = "auto";
+    // YAML cell map for the netlist frontend (DFF/Latch/ICG pin mapping).
+    std::string cell_map_path;
+    // Graph safety limit overrides (0 = frontend defaults).
+    size_t max_nodes = 0;
+    size_t max_edges = 0;
 };
 
 class ConfigParser {

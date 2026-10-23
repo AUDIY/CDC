@@ -100,11 +100,15 @@ bool Reporter::has_unsuppressed_errors(const std::vector<cdc::Finding>& findings
 }
 
 void Reporter::report_json(const std::vector<cdc::Finding>& findings, std::ostream& os,
-                           const std::string& analysis_status) const {
+                           const std::string& analysis_status,
+                           const std::string& input_type) const {
     auto sorted = sorted_findings(findings);
     os << "{\n"
-       << "  \"analysis_status\": \"" << escape_json(analysis_status) << "\",\n"
-       << "  \"finding_count\": " << sorted.size() << ",\n"
+       << "  \"analysis_status\": \"" << escape_json(analysis_status) << "\",\n";
+    // Emitted only for netlist input so RTL reports stay byte-identical.
+    if (input_type == "netlist")
+        os << "  \"input_type\": \"netlist\",\n";
+    os << "  \"finding_count\": " << sorted.size() << ",\n"
        << "  \"findings\": [\n";
     for (size_t i = 0; i < sorted.size(); ++i) {
         const auto& f = sorted[i];
@@ -234,9 +238,12 @@ void Reporter::report_json(const std::vector<cdc::Finding>& findings, std::ostre
 }
 
 void Reporter::report_text(const std::vector<cdc::Finding>& findings, std::ostream& os,
-                           const std::string& analysis_status) const {
+                           const std::string& analysis_status,
+                           const std::string& input_type) const {
     auto sorted = sorted_findings(findings);
     os << "Analysis status: " << analysis_status << "\n";
+    if (input_type == "netlist")
+        os << "Input type: netlist\n";
 
     for (const auto& f : sorted) {
         // clang-format off
@@ -350,11 +357,15 @@ std::vector<cdc::Finding> Reporter::sorted_findings(const std::vector<cdc::Findi
 void Reporter::report_json(const std::vector<cdc::Finding>& findings,
                            const analysis::CoverageResult& coverage,
                            const analysis::SignoffResult& signoff, std::ostream& os,
-                           const std::string& analysis_status) const {
+                           const std::string& analysis_status,
+                           const std::string& input_type) const {
     auto sorted = sorted_findings(findings);
     os << "{\n"
-       << "  \"analysis_status\": \"" << escape_json(analysis_status) << "\",\n"
-       << "  \"finding_count\": " << sorted.size() << ",\n";
+       << "  \"analysis_status\": \"" << escape_json(analysis_status) << "\",\n";
+    // Emitted only for netlist input so RTL reports stay byte-identical.
+    if (input_type == "netlist")
+        os << "  \"input_type\": \"netlist\",\n";
+    os << "  \"finding_count\": " << sorted.size() << ",\n";
 
     // Coverage
     os << "  \"coverage\": {\n"

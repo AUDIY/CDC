@@ -47,6 +47,10 @@ static void print_usage(const char* prog) {
         << "  --save-baseline <f>  Save findings baseline to file for trend comparison\n"
         << "  --compare-baseline <f> Compare against saved baseline (diff and exit;\n"
         << "                         report output and --save-baseline are skipped)\n"
+        << "  --input-type <t>     Input language: auto (default), rtl, netlist\n"
+        << "  --cell-map <file>    YAML cell map for netlist input (DFF/Latch/ICG pins)\n"
+        << "  --max-nodes <n>      Override graph node safety limit\n"
+        << "  --max-edges <n>      Override graph edge safety limit\n"
         << "  --verbose            Enable verbose output\n"
         << "\nlsp options:\n"
         << "  --top <module>       Top module name (required by analysis)\n"
@@ -160,6 +164,35 @@ static int parse_args(int argc, const char* argv[], CheckOptions& opts) {
                 std::cerr << "Error: --false-path requires non-empty src:dest format\n";
                 return -1;
             }
+        } else if (arg == "--input-type" && i + 1 < argc) {
+            opts.input_type = argv[++i];
+            opts.input_type_explicit = true;
+        } else if (arg == "--cell-map" && i + 1 < argc) {
+            opts.cell_map_path = argv[++i];
+        } else if (arg == "--max-nodes" && i + 1 < argc) {
+            try {
+                long long n = std::stoll(argv[++i]);
+                if (n < 0) {
+                    std::cerr << "Error: --max-nodes must be >= 0\n";
+                    return -1;
+                }
+                opts.max_nodes = static_cast<size_t>(n);
+            } catch (const std::exception&) {
+                std::cerr << "Error: --max-nodes requires a valid integer\n";
+                return -1;
+            }
+        } else if (arg == "--max-edges" && i + 1 < argc) {
+            try {
+                long long n = std::stoll(argv[++i]);
+                if (n < 0) {
+                    std::cerr << "Error: --max-edges must be >= 0\n";
+                    return -1;
+                }
+                opts.max_edges = static_cast<size_t>(n);
+            } catch (const std::exception&) {
+                std::cerr << "Error: --max-edges requires a valid integer\n";
+                return -1;
+            }
         } else if (!arg.empty() && arg[0] != '-') {
             opts.input_files.push_back(arg);
             files_found = true;
@@ -168,7 +201,9 @@ static int parse_args(int argc, const char* argv[], CheckOptions& opts) {
                    arg == "--html-dir" || arg == "--disable-rule" || arg == "--severity" ||
                    arg == "--jobs" || arg == "--profile" || arg == "--incdir" || arg == "+incdir" ||
                    arg == "--define" || arg == "+define" || arg == "--save-baseline" ||
-                   arg == "--compare-baseline" || arg == "--false-path") {
+                   arg == "--compare-baseline" || arg == "--false-path" ||
+                   arg == "--input-type" || arg == "--cell-map" || arg == "--max-nodes" ||
+                   arg == "--max-edges") {
             std::cerr << "Error: option '" << arg << "' requires a value\n";
             return -1;
         } else {
@@ -307,6 +342,21 @@ int run(int argc, const char* argv[]) {
         return static_cast<int>(ExitCode::INPUT_ERROR);
     }
 
+    // Resolve input type: CLI --input-type overrides config input.type;
+    // config overrides the Auto default. Invalid values are rejected here
+    // (config input.type is already validated by the parser).
+    frontend::InputType input_type = frontend::InputType::Auto;
+    if (!opts.input_type_explicit && have_parsed_config && !parsed_cfg.input_type.empty()) {
+        opts.input_type = parsed_cfg.input_type;
+    }
+    {
+        std::string it_error;
+        if (!frontend::parse_input_type(opts.input_type, input_type, &it_error)) {
+            std::cerr << "Error: " << it_error << "\n";
+            return static_cast<int>(ExitCode::INPUT_ERROR);
+        }
+    }
+
     analysis::AnalysisRequest request;
     request.input_files = opts.input_files;
     request.top_module = opts.top_module;
@@ -323,6 +373,13 @@ int run(int argc, const char* argv[]) {
     request.profile = opts.profile;
     request.include_dirs = opts.include_dirs;
     request.defines = opts.defines;
+    request.input_type = input_type;
+    if (!opts.cell_map_path.empty())
+        request.cell_map_path = opts.cell_map_path;
+    if (opts.max_nodes > 0)
+        request.max_nodes = opts.max_nodes;
+    if (opts.max_edges > 0)
+        request.max_edges = opts.max_edges;
 
     analysis::Analyzer analyzer;
     analysis::AnalysisResult analysis = analyzer.run(request);
@@ -418,7 +475,7 @@ int run(int argc, const char* argv[]) {
     }
 
     if (opts.format == "text") {
-        reporter.report_text(findings, *out, analysis.analysis_status);
+        reporter.report_text(findings, *out, analysis.analysis_status, analysis.input_type);
         reporter.report_summary(findings, std::cerr, analysis.analysis_status);
     } else if (opts.format == "sarif") {
         report::SarifReporter sarif_reporter;
@@ -439,7 +496,7 @@ int run(int argc, const char* argv[]) {
             std::cerr << "HTML report generated in " << html_opts.output_dir << "/\n";
         }
     } else {
-        reporter.report_json(findings, *out, analysis.analysis_status);
+        reporter.report_json(findings, *out, analysis.analysis_status, analysis.input_type);
     }
 
     if (out == &out_file) {

@@ -23,14 +23,20 @@ struct ReportCounts {
 
 class Reporter {
    public:
+    // `input_type` is optional metadata ("rtl" or "netlist"). It is emitted as
+    // a top-level "input_type" field only when it equals "netlist", so RTL
+    // reports remain byte-identical to previous releases.
     void report_json(const std::vector<cdc::Finding>& findings, std::ostream& os,
-                     const std::string& analysis_status = "complete") const;
+                     const std::string& analysis_status = "complete",
+                     const std::string& input_type = "") const;
     void report_json(const std::vector<cdc::Finding>& findings,
                      const analysis::CoverageResult& coverage,
                      const analysis::SignoffResult& signoff, std::ostream& os,
-                     const std::string& analysis_status = "complete") const;
+                     const std::string& analysis_status = "complete",
+                     const std::string& input_type = "") const;
     void report_text(const std::vector<cdc::Finding>& findings, std::ostream& os,
-                     const std::string& analysis_status = "complete") const;
+                     const std::string& analysis_status = "complete",
+                     const std::string& input_type = "") const;
     void report_summary(const std::vector<cdc::Finding>& findings, std::ostream& os,
                         const std::string& analysis_status = "complete") const;
 

@@ -28,6 +28,14 @@ struct CheckOptions {
     std::string profile;
     std::vector<std::string> include_dirs;
     std::vector<std::string> defines;
+    // Language frontend: "auto" (default), "rtl", or "netlist".
+    std::string input_type = "auto";
+    bool input_type_explicit = false;
+    // YAML cell map for the netlist frontend.
+    std::string cell_map_path;
+    // Graph safety limit overrides (0 = frontend defaults).
+    size_t max_nodes = 0;
+    size_t max_edges = 0;
 };
 
 enum class ExitCode : int {

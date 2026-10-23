@@ -524,6 +524,52 @@ static void parse_blackboxes_node(const YAML::Node& node, Config& config, std::s
     }
 }
 
+static void parse_input_node(const YAML::Node& node, Config& config, std::string* error) {
+    if (!node || !node.IsMap())
+        return;
+    if (node["type"]) {
+        std::string v = to_lower(node["type"].as<std::string>());
+        if (v != "auto" && v != "rtl" && v != "netlist") {
+            if (error)
+                *error = "Invalid input.type (expected auto/rtl/netlist): " + v;
+            return;
+        }
+        config.input_type = v;
+    }
+    if (node["cell_map"])
+        config.cell_map_path = node["cell_map"].as<std::string>();
+    if (node["max_nodes"]) {
+        try {
+            long long n = node["max_nodes"].as<long long>();
+            if (n < 0) {
+                if (error)
+                    *error = "Invalid input.max_nodes (must be >= 0)";
+                return;
+            }
+            config.max_nodes = static_cast<size_t>(n);
+        } catch (const YAML::Exception& e) {
+            if (error)
+                *error = std::string("Invalid input.max_nodes: ") + e.what();
+            return;
+        }
+    }
+    if (node["max_edges"]) {
+        try {
+            long long n = node["max_edges"].as<long long>();
+            if (n < 0) {
+                if (error)
+                    *error = "Invalid input.max_edges (must be >= 0)";
+                return;
+            }
+            config.max_edges = static_cast<size_t>(n);
+        } catch (const YAML::Exception& e) {
+            if (error)
+                *error = std::string("Invalid input.max_edges: ") + e.what();
+            return;
+        }
+    }
+}
+
 static Config parse_yaml_content(const std::string& content, std::string* error) {
     Config config;
     YAML::Node root = YAML::Load(content);
@@ -539,6 +585,7 @@ static Config parse_yaml_content(const std::string& content, std::string* error)
                                        "reset_policy",
                                        "multicycle_path_policy",
                                        "blackboxes",
+                                       "input",
                                        "reconvergence_depth",
                                        "min_sync_stages",
                                        "require_structural_proof",
@@ -596,6 +643,11 @@ static Config parse_yaml_content(const std::string& content, std::string* error)
     }
     if (root["blackboxes"]) {
         parse_blackboxes_node(root["blackboxes"], config, error);
+        if (error && !error->empty())
+            return Config();
+    }
+    if (root["input"]) {
+        parse_input_node(root["input"], config, error);
         if (error && !error->empty())
             return Config();
     }

@@ -742,6 +742,7 @@ FrontendResult SlangAdapter::elaborate(const std::vector<std::string>& files,
                                        const std::string& top_module,
                                        const FrontendOptions& options) {
     FrontendResult result;
+    result.input_type = "rtl";
     Compilation compilation;
     allow_user_annotation_ = options.allow_user_annotation;
     frontend_warnings_.clear();

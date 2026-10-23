@@ -11,6 +11,7 @@
 #include "cdc/crossing.h"
 #include "clock/domain.h"
 #include "config/config.h"
+#include "frontend/frontend.h"
 #include "ir/graph.h"
 
 namespace opencdc::analysis {
@@ -30,6 +31,14 @@ struct AnalysisRequest {
     std::vector<std::string> include_dirs;
     std::vector<std::string> defines;
     size_t num_threads = 0;
+    // Language frontend selection (Auto = per-file detection). CLI overrides
+    // config; config overrides this default.
+    frontend::InputType input_type = frontend::InputType::Auto;
+    // YAML cell map for the netlist frontend (DFF/Latch/ICG pin mapping).
+    std::string cell_map_path;
+    // Graph safety limit overrides (0 = frontend defaults).
+    size_t max_nodes = 0;
+    size_t max_edges = 0;
 };
 
 struct AnalysisResult {
@@ -37,6 +46,8 @@ struct AnalysisResult {
     std::string analysis_status = "complete";
     std::vector<std::string> errors;
     std::vector<std::string> warnings;
+    // Frontend actually used: "rtl" or "netlist" (empty before frontend runs).
+    std::string input_type;
     ir::Graph graph;
     clock::DomainResult domains;
     std::vector<cdc::Finding> findings;

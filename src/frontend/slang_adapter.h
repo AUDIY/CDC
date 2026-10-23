@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "clock/resolve.h"
+#include "frontend/frontend.h"
 #include "ir/graph.h"
 #include "slang/text/SourceLocation.h"
 
@@ -32,26 +33,16 @@ struct ClockResetInfo {
     bool is_async_reset = false;
 };
 
-struct FrontendOptions {
-    std::vector<std::string> include_dirs;
-    std::vector<std::string> defines;
-    bool allow_user_annotation = true;
-};
+// FrontendOptions / FrontendResult / IFrontend / InputType now live in
+// frontend/frontend.h (shared contract for all language frontends).
 
-struct FrontendResult {
-    ir::Graph graph;
-    std::vector<std::string> errors;
-    std::vector<std::string> warnings;
-    bool ok = false;
-};
-
-class SlangAdapter {
+class SlangAdapter : public IFrontend {
    public:
     SlangAdapter();
-    ~SlangAdapter();
+    ~SlangAdapter() override;
 
     FrontendResult elaborate(const std::vector<std::string>& files, const std::string& top_module,
-                             const FrontendOptions& options = {});
+                             const FrontendOptions& options = {}) override;
 
    private:
     void walk_instance(const slang::ast::InstanceSymbol& inst, ir::Graph& graph,

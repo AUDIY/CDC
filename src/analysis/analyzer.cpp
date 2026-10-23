@@ -1,5 +1,7 @@
 #include "analysis/analyzer.h"
 
+#include <memory>
+
 #include "cdc/blackbox.h"
 #include "cdc/cdc006.h"
 #include "cdc/pattern.h"
@@ -33,17 +35,42 @@ AnalysisResult Analyzer::run(const AnalysisRequest& request) {
         }
     }
 
-    // 1. Frontend: parse and elaborate to IR graph.
-    frontend::SlangAdapter adapter;
+    // 1. Frontend: parse and elaborate to IR graph. InputType::Auto runs the
+    // conservative per-file heuristic (ambiguous → rtl, preserving the
+    // historical default).
+    frontend::InputType input_type = request.input_type;
+    if (input_type == frontend::InputType::Auto)
+        input_type = frontend::detect_input_type(request.input_files);
+
+    std::unique_ptr<frontend::IFrontend> adapter;
+    if (input_type == frontend::InputType::Netlist) {
+        adapter = frontend::make_netlist_adapter();
+        if (!adapter) {
+            AnalysisResult result;
+            result.errors.push_back(
+                "netlist input requested but the netlist frontend is not available in this build");
+            result.analysis_status = "failed";
+            return result;
+        }
+    } else {
+        adapter = std::make_unique<frontend::SlangAdapter>();
+    }
+
     frontend::FrontendOptions fe_opts;
     fe_opts.include_dirs = request.include_dirs;
     fe_opts.defines = request.defines;
     fe_opts.allow_user_annotation = cfg.allow_user_annotation;
+    fe_opts.cell_map_path =
+        !request.cell_map_path.empty() ? request.cell_map_path : cfg.cell_map_path;
+    fe_opts.max_nodes = request.max_nodes ? request.max_nodes : cfg.max_nodes;
+    fe_opts.max_edges = request.max_edges ? request.max_edges : cfg.max_edges;
     frontend::FrontendResult fe_result =
-        adapter.elaborate(request.input_files, request.top_module, fe_opts);
+        adapter->elaborate(request.input_files, request.top_module, fe_opts);
     if (!fe_result.ok) {
         AnalysisResult result;
         result.errors = std::move(fe_result.errors);
+        result.warnings = std::move(fe_result.warnings);
+        result.input_type = fe_result.input_type;
         result.analysis_status = "failed";
         return result;
     }
@@ -53,6 +80,7 @@ AnalysisResult Analyzer::run(const AnalysisRequest& request) {
     AnalysisResult result = run_on_graph(std::move(graph), request, std::move(cfg));
     // Frontend warnings (e.g. skipped unknown-clock blocks) travel with the result.
     result.warnings.insert(result.warnings.begin(), fe_warnings.begin(), fe_warnings.end());
+    result.input_type = fe_result.input_type;
     return result;
 }
 
