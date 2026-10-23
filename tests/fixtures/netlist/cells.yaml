@@ -1,0 +1,11 @@
+# Example cell map: classify a specific async-reset flop variant so reset
+# polarity/async properties are recorded on the register.
+cells:
+  - pattern: "DFCNQ_*"
+    kind: dff_reset
+    clock: CK
+    data: D
+    output: Q
+    reset: CDN
+    reset_active_low: true
+    reset_async: true

@@ -1,0 +1,633 @@
+#include "frontend/netlist/netlist_adapter.h"
+
+#include <algorithm>
+#include <fstream>
+#include <sstream>
+#include <unordered_map>
+#include <unordered_set>
+
+#include "clock/resolve.h"
+#include "frontend/netlist/netlist_parser.h"
+
+namespace opencdc::frontend::netlist {
+
+namespace {
+
+using ir::EdgeRole;
+using ir::LogicType;
+using ir::NodeKind;
+using netlist::Conn;
+using netlist::Instance;
+using netlist::NetRef;
+using netlist::NetlistModule;
+using netlist::PortDir;
+
+bool is_gate_primitive(const std::string& cell_type) {
+    static const std::unordered_set<std::string> kGates = {
+        "and",  "or",   "not",  "nand", "nor",  "xor", "xnor", "buf",
+        "bufif0", "bufif1", "notif0", "notif1", "pullup", "pulldown"};
+    return kGates.count(cell_type) > 0;
+}
+
+// Map a combinational gate/cell name to a LogicType (approximate for
+// inverting gates — netlist connectivity, not exact function, drives CDC).
+LogicType logic_for_gate(const std::string& g) {
+    if (g == "and" || g == "nand")
+        return LogicType::And;
+    if (g == "or" || g == "nor")
+        return LogicType::Or;
+    if (g == "xor" || g == "xnor")
+        return LogicType::Xor;
+    if (g == "not" || g == "notif0" || g == "notif1")
+        return LogicType::Not;
+    if (g == "buf" || g == "bufif0" || g == "bufif1")
+        return LogicType::Buf;
+    if (g == "mux")
+        return LogicType::Mux;
+    return LogicType::Unknown;
+}
+
+// Pin-role candidate names, in preference order. Used when the cell library
+// entry doesn't specify explicit pin names.
+const std::vector<std::string>& clock_pins() {
+    static const std::vector<std::string> p = {"CK", "CLK", "C", "GCLK", "CP", "clock"};
+    return p;
+}
+const std::vector<std::string>& data_pins() {
+    static const std::vector<std::string> p = {"D", "DI", "DATA", "D1"};
+    return p;
+}
+const std::vector<std::string>& output_pins() {
+    static const std::vector<std::string> p = {"Q", "QN", "Z", "Y", "CO", "OUT"};
+    return p;
+}
+const std::vector<std::string>& enable_pins() {
+    static const std::vector<std::string> p = {"E", "EN", "CE", "enable", "TE"};
+    return p;
+}
+const std::vector<std::string>& reset_pins() {
+    static const std::vector<std::string> p = {"R",  "RN",  "RST",   "RESET", "CDN",
+                                               "CLR", "SRN", "RESET_B", "RSTN"};
+    return p;
+}
+const std::vector<std::string>& set_pins() {
+    static const std::vector<std::string> p = {"S", "SN", "SET", "SDN", "SP", "PB"};
+    return p;
+}
+// ICG-specific.
+const std::vector<std::string>& icg_out_pins() {
+    static const std::vector<std::string> p = {"GCK", "CLKOUT", "Q", "Y", "GCLK"};
+    return p;
+}
+
+// Find a connection whose pin matches any candidate (exact, then case-insensitive).
+const Conn* find_pin(const std::vector<Conn>& conns, const std::vector<std::string>& cands) {
+    for (const auto& c : conns) {
+        for (const auto& cand : cands) {
+            if (c.pin == cand)
+                return &c;
+        }
+    }
+    for (const auto& c : conns) {
+        for (const auto& cand : cands) {
+            if (c.pin.size() == cand.size()) {
+                bool ci = true;
+                for (size_t i = 0; i < c.pin.size(); ++i) {
+                    if (std::tolower(static_cast<unsigned char>(c.pin[i])) !=
+                        std::tolower(static_cast<unsigned char>(cand[i]))) {
+                        ci = false;
+                        break;
+                    }
+                }
+                if (ci)
+                    return &c;
+            }
+        }
+    }
+    return nullptr;
+}
+
+// Prepend an explicit pin (from the cell library) as the highest-priority
+// candidate so user-specified names win over the generic heuristics.
+std::vector<std::string> with_explicit(const std::string& explicit_pin,
+                                       const std::vector<std::string>& generic) {
+    std::vector<std::string> v;
+    if (!explicit_pin.empty())
+        v.push_back(explicit_pin);
+    v.insert(v.end(), generic.begin(), generic.end());
+    return v;
+}
+
+class GraphBuilder {
+   public:
+    GraphBuilder(ir::Graph& graph, const NetlistModule& mod, const cell::CellLibrary& lib,
+                 std::string top, std::string filename)
+        : graph_(graph), mod_(mod), lib_(lib), top_(std::move(top)), filename_(std::move(filename)) {
+    }
+
+    void build(std::vector<std::string>& warnings);
+
+   private:
+    // Union-find over net names for `assign a = b` pass-throughs (ports pinned).
+    std::string find(const std::string& x) {
+        auto it = parent_.find(x);
+        if (it == parent_.end() || it->second == x)
+            return x;
+        std::string root = find(it->second);
+        it->second = root;
+        return root;
+    }
+    void alias(const std::string& driven, const std::string& driver) {
+        if (driven.empty() || driver.empty() || driven == driver)
+            return;
+        if (ports_.count(driven)) {
+            // A top-level port keeps its own node; record the feed for later.
+            port_feed_[driven] = driver;
+            return;
+        }
+        std::string rd = find(driven);
+        std::string rv = find(driver);
+        if (rd != rv)
+            parent_[rd] = rv;
+    }
+
+    ir::SourceLoc loc(size_t line) const {
+        return ir::SourceLoc{filename_, static_cast<uint32_t>(line), 0};
+    }
+    uint32_t net_width(const std::string& name) const {
+        auto it = net_width_.find(name);
+        return it != net_width_.end() ? it->second : 1;
+    }
+
+    uint64_t port_node(const std::string& name);
+    uint64_t net_node(const std::string& name);
+    // Node id for a net reference, resolving aliases and ports.
+    uint64_t get_node(const NetRef& ref);
+    uint64_t get_net_node(const std::string& net);
+
+    void build_assign_aliases();
+    void process_instance(const Instance& inst, std::vector<std::string>& warnings);
+    void process_sequential(const Instance& inst, const cell::CellDef* def, cell::CellKind kind,
+                            std::vector<std::string>& warnings);
+    void process_icg(const Instance& inst, const cell::CellDef* def,
+                     std::vector<std::string>& warnings);
+    void process_comb(const Instance& inst, const cell::CellDef* def, cell::CellKind kind,
+                      std::vector<std::string>& warnings);
+    void process_gate_primitive(const Instance& inst, std::vector<std::string>& warnings);
+
+    ir::Graph& graph_;
+    const NetlistModule& mod_;
+    const cell::CellLibrary& lib_;
+    std::string top_;
+    std::string filename_;
+
+    std::unordered_set<std::string> ports_;
+    std::unordered_map<std::string, std::string> parent_;   // union-find
+    std::unordered_map<std::string, std::string> port_feed_;  // port -> driver net
+    std::unordered_map<std::string, uint32_t> net_width_;
+    std::unordered_map<std::string, uint64_t> port_nodes_;
+    std::unordered_map<std::string, uint64_t> net_nodes_;
+    std::unordered_set<std::string> unknown_cells_;
+};
+
+uint64_t GraphBuilder::port_node(const std::string& name) {
+    auto it = port_nodes_.find(name);
+    if (it != port_nodes_.end())
+        return it->second;
+    uint64_t id = graph_.add_port(name, net_width(name), ir::SourceLoc{filename_, 0, 0});
+    port_nodes_[name] = id;
+    return id;
+}
+
+uint64_t GraphBuilder::net_node(const std::string& name) {
+    auto it = net_nodes_.find(name);
+    if (it != net_nodes_.end())
+        return it->second;
+    uint64_t id = graph_.add_net(name, net_width(name), ir::SourceLoc{filename_, 0, 0});
+    net_nodes_[name] = id;
+    return id;
+}
+
+uint64_t GraphBuilder::get_net_node(const std::string& net) {
+    std::string r = find(net);
+    if (r.empty())
+        return 0;
+    if (ports_.count(r))
+        return port_node(r);
+    return net_node(r);
+}
+
+uint64_t GraphBuilder::get_node(const NetRef& ref) {
+    if (ref.kind == NetRef::Kind::Const)
+        return 0;  // constant ties have no driver node
+    if (ref.kind == NetRef::Kind::Concat) {
+        // MVP: concat has no single node; callers should not use get_node on
+        // concat refs for edges. Return 0.
+        return 0;
+    }
+    return get_net_node(ref.net);
+}
+
+void GraphBuilder::build_assign_aliases() {
+    for (const auto& a : mod_.assigns) {
+        // Only simple `x = y` (both plain net refs) alias cleanly. Bit-select
+        // and concat assigns get an explicit net + edges instead (below).
+        if (a.lhs.kind == NetRef::Kind::Net && a.rhs.kind == NetRef::Kind::Net) {
+            alias(a.lhs.net, a.rhs.net);
+        }
+    }
+}
+
+void GraphBuilder::build(std::vector<std::string>& warnings) {
+    // Record widths and the port set.
+    for (const auto& p : mod_.ports) {
+        ports_.insert(p.name);
+        net_width_[p.name] = p.width();
+    }
+    for (const auto& n : mod_.nets) {
+        net_width_[n.name] = n.width();
+        parent_[n.name] = n.name;
+    }
+
+    build_assign_aliases();
+
+    // Create all top-level port nodes up front.
+    for (const auto& p : mod_.ports) {
+        port_node(p.name);
+    }
+
+    // Pass 1: functional instances (registers, comb, ICG, gate primitives).
+    for (const auto& inst : mod_.instances) {
+        process_instance(inst, warnings);
+        if (graph_.truncated())
+            return;
+    }
+
+    // Pass 2: simple assigns that were NOT aliased (bit/concat) get explicit
+    // net nodes + edges.
+    for (const auto& a : mod_.assigns) {
+        if (a.lhs.kind == NetRef::Kind::Net && a.rhs.kind == NetRef::Kind::Net)
+            continue;  // already aliased
+        uint64_t lhs_node = get_node(a.lhs);
+        if (a.rhs.kind == NetRef::Kind::Const) {
+            // Constant tie: no driver edge (leave the net undriven).
+            if (lhs_node == 0)
+                net_node(a.lhs.net);
+            continue;
+        }
+        if (a.rhs.kind == NetRef::Kind::Concat) {
+            for (const auto& m : a.rhs.concat) {
+                uint64_t mn = get_net_node(m);
+                if (mn && lhs_node)
+                    graph_.add_edge(mn, lhs_node, EdgeRole::Data);
+            }
+            continue;
+        }
+        // Simple bit-select / net on the RHS.
+        uint64_t rhs_node = get_node(a.rhs);
+        if (rhs_node && lhs_node)
+            graph_.add_edge(rhs_node, lhs_node, EdgeRole::Data);
+    }
+
+    // Pass 3: connect port feeds (output ports driven by aliased buffers/assigns).
+    for (const auto& [port, driver] : port_feed_) {
+        uint64_t pn = port_node(port);
+        uint64_t dn = get_net_node(driver);
+        if (pn && dn)
+            graph_.add_edge(dn, pn, EdgeRole::Data);
+    }
+
+    // Aggregate unknown-cell warnings.
+    if (!unknown_cells_.empty()) {
+        std::ostringstream oss;
+        bool first = true;
+        for (const auto& c : unknown_cells_) {
+            if (!first)
+                oss << ", ";
+            oss << c;
+            first = false;
+        }
+        warnings.push_back(
+            "netlist: unmapped cell type(s) treated as opaque combinational (add entries to the "
+            "cell map to classify them): " +
+            oss.str());
+    }
+}
+
+void GraphBuilder::process_instance(const Instance& inst, std::vector<std::string>& warnings) {
+    if (is_gate_primitive(inst.cell_type)) {
+        process_gate_primitive(inst, warnings);
+        return;
+    }
+    if (inst.positional()) {
+        warnings.push_back("netlist: positional cell instance '" + inst.inst_name + "' (" +
+                           inst.cell_type + ") skipped; named pin connections are required");
+        return;
+    }
+    const cell::CellDef* def = lib_.lookup(inst.cell_type);
+    cell::CellKind kind = def ? def->kind : cell::CellKind::Unknown;
+    switch (kind) {
+        case cell::CellKind::Dff:
+        case cell::CellKind::DffReset:
+        case cell::CellKind::DffEnable:
+        case cell::CellKind::DffSetReset:
+        case cell::CellKind::Latch:
+            process_sequential(inst, def, kind, warnings);
+            return;
+        case cell::CellKind::Icg:
+            process_icg(inst, def, warnings);
+            return;
+        default:
+            process_comb(inst, def, kind, warnings);
+            return;
+    }
+}
+
+void GraphBuilder::process_sequential(const Instance& inst, const cell::CellDef* def,
+                                      cell::CellKind kind, std::vector<std::string>& warnings) {
+    cell::CellKind k = kind;
+    std::string clk_pin = def ? def->clock_pin : "";
+    std::string d_pin = def ? def->data_pin : "";
+    std::string q_pin = def ? def->output_pin : "";
+    std::string rst_pin = def ? def->reset_pin : "";
+    std::string set_pin = def ? def->set_pin : "";
+    std::string en_pin = def ? def->enable_pin : "";
+
+    const Conn* clk = find_pin(inst.conns, with_explicit(clk_pin, clock_pins()));
+    const Conn* d = find_pin(inst.conns, with_explicit(d_pin, data_pins()));
+    const Conn* q = find_pin(inst.conns, with_explicit(q_pin, output_pins()));
+    const Conn* rst = find_pin(inst.conns, with_explicit(rst_pin, reset_pins()));
+    const Conn* setp = find_pin(inst.conns, with_explicit(set_pin, set_pins()));
+    const Conn* en = find_pin(inst.conns, with_explicit(en_pin, enable_pins()));
+
+    if (!clk || clk->net.kind != NetRef::Kind::Net) {
+        warnings.push_back("netlist: sequential cell '" + inst.inst_name + "' (" + inst.cell_type +
+                           ") has no identifiable clock pin; treated as opaque");
+        unknown_cells_.insert(inst.cell_type);
+        return;
+    }
+
+    // Latches use the gate/enable net as their "clock"; flops use the clock.
+    std::string clk_net = find(clk->net.net);
+    if (k == cell::CellKind::Latch && en && en->net.kind == NetRef::Kind::Net)
+        clk_net = find(en->net.net);
+
+    uint64_t reg = graph_.add_register(inst.inst_name, clk_net, /*width=*/1, loc(inst.line),
+                                       /*module_path=*/"", inst.cell_type);
+    if (reg == 0)
+        return;
+    if (k == cell::CellKind::Latch) {
+        ir::Node* n = graph_.find_node_mutable(reg);
+        if (n)
+            n->is_latch = true;
+    }
+
+    // Reset properties from the cell definition.
+    if (rst && rst->net.kind == NetRef::Kind::Net) {
+        ir::Node* n = graph_.find_node_mutable(reg);
+        if (n) {
+            n->reset_signal = find(rst->net.net);
+            bool active_low = def && def->reset_active_low;
+            n->reset_pol = active_low ? ir::ResetPolarity::ActiveLow : ir::ResetPolarity::ActiveHigh;
+            n->is_async_reset = def && def->reset_async;
+        }
+    }
+    (void)setp;  // set pin present but not modelled (rare; name is recorded via cell_type)
+
+    // Data edge: D net -> register.
+    if (d && d->net.kind != NetRef::Kind::Const) {
+        uint64_t dn = get_node(d->net);
+        if (dn)
+            graph_.add_edge(dn, reg, EdgeRole::Data);
+    }
+    // Output edge: register -> Q net.
+    if (q && q->net.kind == NetRef::Kind::Net) {
+        uint64_t qn = get_net_node(q->net.net);
+        if (qn)
+            graph_.add_edge(reg, qn, EdgeRole::Data);
+    }
+}
+
+void GraphBuilder::process_icg(const Instance& inst, const cell::CellDef* def,
+                               std::vector<std::string>& warnings) {
+    std::string clk_pin = def ? def->clock_pin : "";
+    std::string en_pin = def ? def->enable_pin : "";
+    std::string out_pin = def ? def->output_pin : "";
+
+    const Conn* clk = find_pin(inst.conns, with_explicit(clk_pin, clock_pins()));
+    const Conn* en = find_pin(inst.conns, with_explicit(en_pin, enable_pins()));
+    const Conn* out = find_pin(inst.conns, with_explicit(out_pin, icg_out_pins()));
+
+    if (!clk || !out || clk->net.kind != NetRef::Kind::Net || out->net.kind != NetRef::Kind::Net) {
+        warnings.push_back("netlist: clock-gate cell '" + inst.inst_name + "' (" + inst.cell_type +
+                           ") missing clock or output pin; treated as opaque");
+        unknown_cells_.insert(inst.cell_type);
+        return;
+    }
+
+    uint64_t clk_n = get_node(clk->net);
+    uint64_t out_n = get_net_node(out->net.net);
+    std::vector<uint64_t> inputs;
+    if (clk_n)
+        inputs.push_back(clk_n);
+    if (en && en->net.kind == NetRef::Kind::Net) {
+        uint64_t en_n = get_node(en->net);
+        if (en_n)
+            inputs.push_back(en_n);
+    }
+    // Model the gate as AND(clock, enable) so ClockResolver flags the gated net.
+    uint64_t and_n = graph_.add_combinational(inst.inst_name + "/gate", LogicType::And, inputs,
+                                              /*width=*/1, loc(inst.line), "", "icg");
+    if (and_n && out_n)
+        graph_.add_edge(and_n, out_n, EdgeRole::Data);
+}
+
+void GraphBuilder::process_comb(const Instance& inst, const cell::CellDef* def, cell::CellKind kind,
+                                std::vector<std::string>& warnings) {
+    if (kind == cell::CellKind::Unknown)
+        unknown_cells_.insert(inst.cell_type);
+
+    // Determine output pin (first matching output candidate) and inputs (rest).
+    std::string out_pin = def ? def->output_pin : "";
+    const Conn* out = nullptr;
+    if (!out_pin.empty())
+        out = find_pin(inst.conns, {out_pin});
+    if (!out)
+        out = find_pin(inst.conns, output_pins());
+
+    LogicType lt = LogicType::Unknown;
+    if (kind == cell::CellKind::Buffer)
+        lt = LogicType::Buf;
+    else if (kind == cell::CellKind::Inverter)
+        lt = LogicType::Not;
+    else if (def && !def->pattern.empty()) {
+        // Best-effort logic type from the pattern name for Comb cells.
+        const std::string& p = def->pattern;
+        if (p.find("AND") != std::string::npos || p.find("NAND") != std::string::npos)
+            lt = LogicType::And;
+        else if (p.find("OR") != std::string::npos || p.find("NOR") != std::string::npos)
+            lt = LogicType::Or;
+        else if (p.find("XOR") != std::string::npos || p.find("XNOR") != std::string::npos)
+            lt = LogicType::Xor;
+        else if (p.find("MUX") != std::string::npos)
+            lt = LogicType::Mux;
+    }
+
+    std::vector<uint64_t> inputs;
+    for (const auto& c : inst.conns) {
+        if (out && &c == out)
+            continue;  // skip output pin
+        if (c.net.kind == NetRef::Kind::Net) {
+            uint64_t n = get_node(c.net);
+            if (n)
+                inputs.push_back(n);
+        }
+    }
+
+    uint64_t comb = graph_.add_combinational(inst.inst_name, lt, inputs, /*width=*/1,
+                                             loc(inst.line), "", inst.cell_type);
+    if (comb && out && out->net.kind == NetRef::Kind::Net) {
+        uint64_t on = get_net_node(out->net.net);
+        if (on)
+            graph_.add_edge(comb, on, EdgeRole::Data);
+    }
+}
+
+void GraphBuilder::process_gate_primitive(const Instance& inst,
+                                          std::vector<std::string>& warnings) {
+    const std::string& g = inst.cell_type;
+    if (g == "bufif0" || g == "bufif1" || g == "notif0" || g == "notif1" || g == "pullup" ||
+        g == "pulldown") {
+        warnings.push_back("netlist: tristate/pull gate '" + inst.inst_name + "' (" + g +
+                           ") skipped");
+        return;
+    }
+    if (inst.conns.size() < 2) {
+        warnings.push_back("netlist: gate primitive '" + inst.inst_name + "' has too few ports");
+        return;
+    }
+    // Positional gate primitives: first port is the output, the rest are inputs.
+    const NetRef& out = inst.conns[0].net;
+    LogicType lt = logic_for_gate(g);
+    std::vector<uint64_t> inputs;
+    for (size_t i = 1; i < inst.conns.size(); ++i) {
+        if (inst.conns[i].net.kind == NetRef::Kind::Net) {
+            uint64_t n = get_node(inst.conns[i].net);
+            if (n)
+                inputs.push_back(n);
+        }
+    }
+    uint64_t node = graph_.add_combinational(inst.inst_name, lt, inputs, /*width=*/1,
+                                             loc(inst.line), "", g);
+    if (node && out.kind == NetRef::Kind::Net) {
+        uint64_t on = get_net_node(out.net);
+        if (on)
+            graph_.add_edge(node, on, EdgeRole::Data);
+    }
+}
+
+}  // namespace
+
+FrontendResult NetlistAdapter::elaborate(const std::vector<std::string>& files,
+                                         const std::string& top_module,
+                                         const FrontendOptions& options) {
+    FrontendResult result;
+    result.input_type = "netlist";
+
+    // Read input files.
+    std::vector<std::string> sources;
+    std::vector<std::string> filenames;
+    for (const auto& path : files) {
+        std::ifstream in(path, std::ios::binary);
+        if (!in.is_open()) {
+            result.errors.push_back("Failed to read: " + path);
+            return result;
+        }
+        std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        sources.push_back(std::move(content));
+        filenames.push_back(path);
+    }
+    if (sources.empty()) {
+        result.errors.push_back("netlist: no input files");
+        return result;
+    }
+
+    // Parse.
+    ParseResult parsed = parse_netlist(sources, filenames, top_module);
+    result.errors = parsed.errors;
+    result.warnings = parsed.warnings;
+    if (!parsed.ok)
+        return result;
+
+    // Cell library: defaults + optional YAML overlay.
+    library_ = cell::CellLibrary::with_defaults();
+    if (!options.cell_map_path.empty()) {
+        cell::CellLibrary overlay;
+        std::string cell_err;
+        if (!cell::CellLibrary::load_from_yaml_file(options.cell_map_path, overlay, &cell_err)) {
+            result.errors.push_back(cell_err);
+            return result;
+        }
+        for (const auto& d : overlay.defs())
+            library_.add(d);
+    }
+
+    // Graph safety limits (netlist defaults are larger than RTL).
+    size_t max_nodes = options.max_nodes ? options.max_nodes : kNetlistMaxNodes;
+    size_t max_edges = options.max_edges ? options.max_edges : kNetlistMaxEdges;
+    result.graph.set_limits(max_nodes, max_edges);
+
+    // Build the IR graph.
+    GraphBuilder builder(result.graph, parsed.module, library_, top_module, filenames.front());
+    std::vector<std::string> build_warnings;
+    builder.build(build_warnings);
+    result.warnings.insert(result.warnings.end(), build_warnings.begin(), build_warnings.end());
+
+    // Resolve clocks: propagate root_clock / gated / muxed onto register nodes
+    // so CDC004 (gated-clock crossing) and clock-domain grouping work exactly as
+    // they do for RTL. Same pass the slang adapter runs.
+    clock::ClockResolver clock_resolver;
+    auto clock_result = clock_resolver.resolve(result.graph);
+    for (auto& node : result.graph.nodes_mutable()) {
+        if (node.kind != ir::NodeKind::Register)
+            continue;
+        if (node.clock_domain.empty() || node.clock_domain == "unknown")
+            continue;
+        auto it = clock_result.clock_map.find(node.clock_domain);
+        if (it != clock_result.clock_map.end()) {
+            node.root_clock = it->second.root_clock;
+            node.clock_is_gated = it->second.is_gated;
+            if (!node.clock_is_muxed)
+                node.clock_is_muxed = it->second.is_muxed;
+        }
+    }
+    for (auto& w : clock_result.warnings)
+        result.warnings.push_back(std::move(w));
+
+    if (result.graph.truncated()) {
+        result.errors.push_back(
+            "netlist: graph exceeded safety limit during build; analysis incomplete");
+        return result;
+    }
+
+    auto validation = result.graph.validate();
+    if (!validation.ok()) {
+        result.errors = validation.errors;
+        return result;
+    }
+
+    result.ok = true;
+    return result;
+}
+
+}  // namespace opencdc::frontend::netlist
+
+namespace opencdc::frontend {
+
+// Factory referenced by the analyzer. Declared in frontend/frontend.h (the
+// frontend namespace) so the analyzer depends only on the shared contract.
+std::unique_ptr<IFrontend> make_netlist_adapter() {
+    return std::make_unique<netlist::NetlistAdapter>();
+}
+
+}  // namespace opencdc::frontend

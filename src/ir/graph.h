@@ -26,6 +26,7 @@ enum class LogicType {
     Or,
     Xor,
     Not,
+    Buf,
     Mux,
     Concat,
     GrayEncoder,
@@ -69,6 +70,9 @@ struct Node {
 
     // Control signal classification (set by slang adapter)
     bool is_control_signal = false;
+
+    // Level-sensitive latch (set by the netlist frontend; RTL never sets it).
+    bool is_latch = false;
 };
 
 enum class EdgeRole : uint8_t { Data, Control, Clock, Reset };
@@ -185,6 +189,18 @@ class Graph {
         ++generation_;
     }
 
+    // Override the node/edge safety limits (e.g. netlist frontends use larger
+    // defaults). 0 keeps the current value. The static_assert above guarantees
+    // node IDs stay within 32-bit edge-key packing range; the setter enforces
+    // the same bound at runtime.
+    void set_limits(size_t max_nodes, size_t max_edges);
+    size_t max_nodes() const {
+        return max_nodes_;
+    }
+    size_t max_edges() const {
+        return max_edges_;
+    }
+
    private:
     std::vector<Node> nodes_;
     std::vector<Edge> edges_;
@@ -197,6 +213,8 @@ class Graph {
     uint64_t generation_ = 0;
     bool truncated_ = false;
     bool dirty_ = false;
+    size_t max_nodes_ = MAX_GRAPH_NODES;
+    size_t max_edges_ = MAX_GRAPH_EDGES;
 };
 
 }  // namespace opencdc::ir

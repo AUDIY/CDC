@@ -12,6 +12,16 @@ static std::string leaf_name(const std::string& hier_name) {
     return hier_name.substr(dot + 1);
 }
 
+void Graph::set_limits(size_t max_nodes, size_t max_edges) {
+    // Node IDs feed a 32-bit edge-key pack; keep the same bound the
+    // static_assert enforces for the default constant.
+    if (max_nodes > 0) {
+        max_nodes_ = max_nodes > UINT32_MAX ? UINT32_MAX : max_nodes;
+    }
+    if (max_edges > 0)
+        max_edges_ = max_edges;
+}
+
 uint64_t Graph::add_register(const std::string& hier_name, const std::string& clock_domain,
                              uint32_t width, const SourceLoc& loc, const std::string& module_path,
                              const std::string& module_type) {
@@ -34,7 +44,7 @@ uint64_t Graph::add_register(const std::string& hier_name, const std::string& cl
         return n.id;
     }
 
-    if (nodes_.size() >= MAX_GRAPH_NODES) {
+    if (nodes_.size() >= max_nodes_) {
         truncated_ = true;
         return 0;
     }
@@ -69,7 +79,7 @@ uint64_t Graph::add_port(const std::string& hier_name, uint32_t width, const Sou
         return nodes_[existing->second].id;
     }
 
-    if (nodes_.size() >= MAX_GRAPH_NODES) {
+    if (nodes_.size() >= max_nodes_) {
         truncated_ = true;
         return 0;
     }
@@ -103,7 +113,7 @@ uint64_t Graph::add_net(const std::string& hier_name, uint32_t width, const Sour
         return nodes_[existing->second].id;
     }
 
-    if (nodes_.size() >= MAX_GRAPH_NODES) {
+    if (nodes_.size() >= max_nodes_) {
         truncated_ = true;
         return 0;
     }
@@ -139,7 +149,7 @@ uint64_t Graph::add_combinational(const std::string& hier_name, LogicType logic_
         return nodes_[existing->second].id;
     }
 
-    if (nodes_.size() >= MAX_GRAPH_NODES) {
+    if (nodes_.size() >= max_nodes_) {
         truncated_ = true;
         return 0;
     }
@@ -182,7 +192,7 @@ void Graph::add_edge(uint64_t from_id, uint64_t to_id, EdgeRole role) {
         return;  // no self-loops
     if (!find_node(from_id) || !find_node(to_id))
         return;
-    if (edges_.size() >= MAX_GRAPH_EDGES) {
+    if (edges_.size() >= max_edges_) {
         truncated_ = true;
         return;
     }

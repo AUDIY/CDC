@@ -3,6 +3,7 @@ add_executable(opencdc_unit_tests
     graph_test.cpp
     cell_library_test.cpp
     netlist_parser_test.cpp
+    netlist_frontend_test.cpp
     domain_test.cpp
     crossing_test.cpp
     sync_test.cpp

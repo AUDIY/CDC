@@ -163,11 +163,7 @@ InputType detect_input_type(const std::vector<std::string>& files) {
     return saw_readable ? InputType::Netlist : InputType::Rtl;
 }
 
-// Temporary definition for the frontend-extraction phase; the netlist adapter
-// (PR: frontend/netlist/netlist_adapter.cpp) provides the real implementation
-// and this stub is removed in the same change.
-std::unique_ptr<IFrontend> make_netlist_adapter() {
-    return nullptr;
-}
+// The netlist frontend factory (make_netlist_adapter) is defined in
+// frontend/netlist/netlist_adapter.cpp.
 
 }  // namespace opencdc::frontend
