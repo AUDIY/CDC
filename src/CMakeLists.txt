@@ -5,6 +5,8 @@ set(OPENCDC_CORE_SOURCES
     cell/cell_library.cpp
     frontend/frontend.cpp
     frontend/slang_adapter.cpp
+    frontend/netlist/netlist_lexer.cpp
+    frontend/netlist/netlist_parser.cpp
     clock/domain.cpp
     clock/resolve.cpp
     clock/constraints.cpp
