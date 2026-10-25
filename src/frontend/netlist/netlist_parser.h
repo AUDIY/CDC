@@ -68,9 +68,12 @@ struct NetlistModule {
     std::vector<Instance> instances;
 };
 
-// Parse result: the single top module (or the only module) plus diagnostics.
+// Parse result: the chosen top module plus, when the design contains more
+// than one module, the submodule definitions (moved, excluding the top) that
+// hierarchical elaboration (flatten.cpp) needs.
 struct ParseResult {
     NetlistModule module;
+    std::vector<NetlistModule> modules;
     std::vector<std::string> errors;
     std::vector<std::string> warnings;
     bool ok = false;

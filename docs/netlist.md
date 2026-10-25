@@ -263,11 +263,20 @@ post-synthesis output uses:
 
 - `module` / `endmodule`, ANSI and non-ANSI port declarations
 - `wire` / `reg` / `inout` declarations, including `[msb:lsb]` ranges
-- Cell and gate-primitive instantiations (named port connections)
+- Cell and gate-primitive instantiations (named and positional port
+  connections)
 - `assign` statements (constants, concat, bit-selects, simple aliases)
 - Escaped identifiers (`\foo.bar `), attributes (`(* ... *)`), preprocessor
   `` ` `` directives (skipped)
 - Numbers (`8'hff`, `4'b1010`, sized/unsized)
+- **Multi-module hierarchical netlists**: submodule instances are elaborated
+  by flattening — child contents get `inst.`-prefixed names (a flop `ff0`
+  inside instance `u_src` becomes `u_src.ff0`), child ports bind through the
+  parent-side pin connections (positional connections map in child port
+  declaration order), sub-module definitions shadow library cells of the
+  same name, and instantiation cycles (including through the top) are
+  rejected with a clear error. Nesting deeper than 64 levels is an error;
+  unconnected ports become isolated prefixed nets.
 
 Behavioral constructs are out of scope (they are RTL and go to slang).
 
@@ -338,8 +347,6 @@ clock waivers keyed on RTL clock names should still use regex/wildcards.
 
 ## Known limitations
 
-- **Multi-module hierarchical netlists** are parsed as a single top module;
-  deep hierarchy elaboration is a stretch goal.
 - **Gray recovery is structural**: it recognizes the canonical adjacent-bit
   XOR shape only; gray styles that synthesize differently (e.g. LFSR-style)
   are not recognized and report CDC002 as an ordinary multi-bit crossing.

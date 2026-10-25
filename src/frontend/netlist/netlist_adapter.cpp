@@ -8,6 +8,7 @@
 
 #include "cell/liberty.h"
 #include "clock/resolve.h"
+#include "frontend/netlist/flatten.h"
 #include "frontend/netlist/netlist_parser.h"
 #include "frontend/netlist/name_map.h"
 #include "frontend/netlist/regroup.h"
@@ -625,6 +626,24 @@ FrontendResult NetlistAdapter::elaborate(const std::vector<std::string>& files,
     if (!parsed.ok)
         return result;
 
+    // Hierarchical elaboration: when any instance of the top module refers to
+    // another module defined in the design, flatten the hierarchy into one
+    // module (child contents get `inst.`-prefixed names; child ports bind
+    // through the parent-side pin connections) before building the graph.
+    // Flat netlists — the common synthesized case — skip the pass entirely.
+    const NetlistModule* top = &parsed.module;
+    NetlistModule flat;
+    if (references_submodules(parsed.module, parsed.modules)) {
+        std::vector<std::string> hier_errors;
+        if (!flatten_hierarchy(parsed.module, parsed.modules, flat, hier_errors,
+                               result.warnings)) {
+            for (auto& e : hier_errors)
+                result.errors.push_back(e);
+            return result;
+        }
+        top = &flat;
+    }
+
     // Cell library: defaults + optional Liberty import + optional YAML map.
     // Precedence (lowest → highest): heuristic defaults, Liberty cell
     // definitions (exact names, so they beat the short default globs), and
@@ -657,7 +676,7 @@ FrontendResult NetlistAdapter::elaborate(const std::vector<std::string>& files,
     result.graph.set_limits(max_nodes, max_edges);
 
     // Build the IR graph.
-    GraphBuilder builder(result.graph, parsed.module, library_, top_module, filenames.front());
+    GraphBuilder builder(result.graph, *top, library_, top_module, filenames.front());
     std::vector<std::string> build_warnings;
     builder.build(build_warnings);
     result.warnings.insert(result.warnings.end(), build_warnings.begin(), build_warnings.end());

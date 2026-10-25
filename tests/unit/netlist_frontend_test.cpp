@@ -242,6 +242,46 @@ TEST(NetlistFrontendTest, NameMapRenamesNetlistRegistersToRtlNames) {
     EXPECT_TRUE(warned);
 }
 
+TEST(NetlistFrontendTest, HierarchicalInstancesFlattenIntoPrefixedNames) {
+    // The crossing lives inside a submodule instantiated on two different
+    // clocks; elaboration must flatten it to prefixed register names so the
+    // analyzer sees it exactly like a flat netlist.
+    AnalysisRequest req;
+    req.input_files = {fx("hier_crossing.v")};
+    req.top_module = "hier_crossing";
+    req.input_type = InputType::Netlist;
+    Analyzer analyzer;
+    auto result = analyzer.run(req);
+    ASSERT_TRUE(result.ok) << (result.errors.empty() ? "" : result.errors.front());
+
+    EXPECT_EQ(count_rule(result.findings, "CDC001"), 1u);
+    const cdc::Finding* f = find_rule(result.findings, "CDC001");
+    ASSERT_NE(f, nullptr);
+    EXPECT_EQ(f->source_reg_name, "u_src.ff0");
+    EXPECT_EQ(f->dest_reg_name, "u_dst.ff0");
+    EXPECT_EQ(f->source_domain, "clk_a");
+    EXPECT_EQ(f->dest_domain, "clk_b");
+}
+
+TEST(NetlistFrontendTest, RecursiveModuleInstantiationIsRejected) {
+    // hier_a instantiates hier_b which instantiates hier_a: elaboration must
+    // fail with a clear error instead of recursing or silently dropping
+    // logic.
+    AnalysisRequest req;
+    req.input_files = {fx("hier_recursive.v")};
+    req.top_module = "hier_a";
+    req.input_type = InputType::Netlist;
+    Analyzer analyzer;
+    auto result = analyzer.run(req);
+    ASSERT_FALSE(result.ok);
+    bool found_recursive = false;
+    for (const auto& e : result.errors) {
+        if (e.find("recursive module instantiation") != std::string::npos)
+            found_recursive = true;
+    }
+    EXPECT_TRUE(found_recursive);
+}
+
 TEST(NetlistFrontendTest, XorCellClassifiesAsXorNotOr) {
     // Regression for pattern-name logic-type inference: "XOR"/"XNOR" contain
     // "OR" (and "NAND" contains "AND") as substrings, so match order decides.

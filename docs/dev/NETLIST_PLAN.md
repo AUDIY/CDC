@@ -277,9 +277,16 @@ Done (PR13):
   and analyzer warnings (unmapped cells, muxed-clock annotation) publish as
   diagnostics.
 
+Done (PR14):
+- Multi-module hierarchical netlist elaboration
+  (`src/frontend/netlist/flatten.{h,cpp}`): submodule instances are
+  flattened into `inst.`-prefixed names before graph building; child
+  ports bind through parent-side connections (named and positional);
+  instantiation cycles (including through the top) are rejected; depth
+  is limited to 64 levels; sub-module definitions shadow library cells.
+  Flat netlists skip the pass entirely (fast path).
+
 Remaining:
-- Multi-module/hierarchical netlist elaboration (module defs + instance
-  expansion with prefixing).
 - Low-power cells (isolation/retention) as safe-crossing blackboxes.
 
 ## Risks & mitigations

@@ -92,13 +92,19 @@ class Parser {
             chosen = &modules.front();
         } else {
             error("netlist defines " + std::to_string(modules.size()) +
-                  " modules; specify --top <module> to select one (hierarchical elaboration is "
-                  "not supported yet)");
+                  " modules; specify --top <module> to select one");
             result.ok = false;
             return result;
         }
 
+        // The chosen module becomes the elaboration root; every other module
+        // definition is retained (moved) for hierarchical elaboration —
+        // submodule instances are flattened against them at build time.
         result.module = *chosen;
+        for (auto& m : modules) {
+            if (&m != chosen)
+                result.modules.push_back(std::move(m));
+        }
         result.ok = true;
         return result;
     }
