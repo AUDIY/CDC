@@ -264,11 +264,17 @@ Done (PR10):
   recovery/regrouping, so RTL-authored waivers keep matching; stale
   entries and name collisions warn.
 
+Done (PR12):
+- Python bindings parity: `CheckOptions` exposes `input_type`,
+  `cell_map_path`, `liberty_path`, `name_map_path`, `max_nodes`/`max_edges`;
+  CI builds the bindings and runs a smoke test (`BUILD_PYTHON_BINDINGS=ON`,
+  global `POSITION_INDEPENDENT_CODE` so fetched static deps link into the
+  module).
+
 Remaining:
 - Multi-module/hierarchical netlist elaboration (module defs + instance
   expansion with prefixing).
 - Low-power cells (isolation/retention) as safe-crossing blackboxes.
-- LSP handling for netlist files (diagnostics only).
 
 ## Risks & mitigations
 

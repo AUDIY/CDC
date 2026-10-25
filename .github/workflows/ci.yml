@@ -29,16 +29,42 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential
+          sudo apt-get install -y cmake build-essential python3-dev
 
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DBUILD_PYTHON_BINDINGS=ON
 
       - name: Build
         run: cmake --build build -j$(nproc)
 
       - name: All Tests
         run: ctest --test-dir build --output-on-failure
+
+      - name: Python bindings smoke test
+        run: |
+          python3 - <<'EOF'
+          import sys
+          sys.path.insert(0, 'build/src')
+          import opencdc
+
+          # Netlist analysis options must be settable from Python.
+          opts = opencdc.CheckOptions()
+          opts.input_type = 'netlist'
+          opts.cell_map_path = ''
+          opts.liberty_path = ''
+          opts.name_map_path = ''
+          opts.max_nodes = 1000000
+          opts.max_edges = 2000000
+
+          # End-to-end: analyze the netlist fixture; CDC001 findings -> exit 1.
+          rc = opencdc.run([
+              'opencdc', 'check', 'tests/fixtures/netlist/bus_regroup.v',
+              '--top', 'bus_regroup', '--input-type', 'netlist',
+              '--format', 'text',
+          ])
+          assert rc == 1, f'expected exit 1 (findings), got {rc}'
+          print('python bindings OK')
+          EOF
 
       - name: CLI Smoke Test
         run: |

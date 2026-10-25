@@ -299,7 +299,14 @@ PYBIND11_MODULE(opencdc, m) {
         .def_readwrite("signoff_mode", &CheckOptions::signoff_mode)
         .def_readwrite("profile", &CheckOptions::profile)
         .def_readwrite("include_dirs", &CheckOptions::include_dirs)
-        .def_readwrite("defines", &CheckOptions::defines);
+        .def_readwrite("defines", &CheckOptions::defines)
+        .def_readwrite("input_type", &CheckOptions::input_type)
+        .def_readwrite("input_type_explicit", &CheckOptions::input_type_explicit)
+        .def_readwrite("cell_map_path", &CheckOptions::cell_map_path)
+        .def_readwrite("liberty_path", &CheckOptions::liberty_path)
+        .def_readwrite("name_map_path", &CheckOptions::name_map_path)
+        .def_readwrite("max_nodes", &CheckOptions::max_nodes)
+        .def_readwrite("max_edges", &CheckOptions::max_edges);
 
     py::enum_<ExitCode>(m, "ExitCode")
         .value("OK", ExitCode::OK)
