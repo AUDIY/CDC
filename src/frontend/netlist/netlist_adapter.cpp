@@ -8,6 +8,7 @@
 
 #include "clock/resolve.h"
 #include "frontend/netlist/netlist_parser.h"
+#include "frontend/netlist/regroup.h"
 #include "ir/compact.h"
 
 namespace opencdc::frontend::netlist {
@@ -486,13 +487,15 @@ void GraphBuilder::process_comb(const Instance& inst, const cell::CellDef* def, 
         lt = LogicType::Not;
     else if (def && !def->pattern.empty()) {
         // Best-effort logic type from the pattern name for Comb cells.
+        // Order matters: XOR/XNOR must be tested before AND/NOR/OR because
+        // "XOR" and "XNOR" contain them as substrings, and NAND before OR.
         const std::string& p = def->pattern;
-        if (p.find("AND") != std::string::npos || p.find("NAND") != std::string::npos)
-            lt = LogicType::And;
-        else if (p.find("OR") != std::string::npos || p.find("NOR") != std::string::npos)
-            lt = LogicType::Or;
-        else if (p.find("XOR") != std::string::npos || p.find("XNOR") != std::string::npos)
+        if (p.find("XOR") != std::string::npos || p.find("XNOR") != std::string::npos)
             lt = LogicType::Xor;
+        else if (p.find("NAND") != std::string::npos || p.find("AND") != std::string::npos)
+            lt = LogicType::And;
+        else if (p.find("NOR") != std::string::npos || p.find("OR") != std::string::npos)
+            lt = LogicType::Or;
         else if (p.find("MUX") != std::string::npos)
             lt = LogicType::Mux;
     }
@@ -606,6 +609,20 @@ FrontendResult NetlistAdapter::elaborate(const std::vector<std::string>& files,
     std::vector<std::string> build_warnings;
     builder.build(build_warnings);
     result.warnings.insert(result.warnings.end(), build_warnings.begin(), build_warnings.end());
+
+    // Netlist post-passes on the built graph, in order:
+    //  1. Structural gray-code recovery — re-recognizes the `x ^ (x>>1)`
+    //     encoder shape synthesis left behind and re-annotates `is_gray_coded`
+    //     so CDC002 reaches the same verdict as the RTL analysis. Must run
+    //     before regrouping (it annotates the bit flops that get folded).
+    //  2. Multi-bit bus regrouping — re-merge `<base>[i>` bit flops into one
+    //     wide register so the analyzer sees RTL register granularity
+    //     (per-pair counts, CDC002 bus width). Must run before clock
+    //     resolution so merged registers are annotated exactly like any other
+    //     register; compaction below then collapses the now pass-through
+    //     per-bit nets.
+    annotate_gray_registers(result.graph);
+    regroup_buses(result.graph, result.warnings);
 
     // Resolve clocks: propagate root_clock / gated / muxed onto register nodes
     // so CDC004 (gated-clock crossing) and clock-domain grouping work exactly as

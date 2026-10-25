@@ -152,6 +152,82 @@ TEST(NetlistFrontendTest, CellMapClassifiesResetPolarity) {
     EXPECT_TRUE(found_reset);
 }
 
+size_t count_rule(const std::vector<cdc::Finding>& findings, const std::string& id) {
+    size_t n = 0;
+    for (const auto& f : findings) {
+        if (f.rule_id == id)
+            ++n;
+    }
+    return n;
+}
+
+TEST(NetlistFrontendTest, BusRegroupMergesBitFlopsIntoWideRegister) {
+    // yosys bit-blasts `src_reg`/`dst_reg` into per-bit flops `name[i]`
+    // (escaped ids). Bus regrouping must re-merge each group into ONE wide
+    // register, so the crossing is reported exactly as the RTL analysis
+    // reports it: a single CDC001 + CDC002 pair at bus width 4 — not four
+    // narrow CDC001 findings.
+    AnalysisRequest req;
+    req.input_files = {fx("bus_regroup.v")};
+    req.top_module = "bus_regroup";
+    req.input_type = InputType::Netlist;
+    Analyzer analyzer;
+    auto result = analyzer.run(req);
+    ASSERT_TRUE(result.ok) << (result.errors.empty() ? "" : result.errors.front());
+
+    EXPECT_EQ(count_rule(result.findings, "CDC001"), 1u);
+    EXPECT_EQ(count_rule(result.findings, "CDC002"), 1u);
+    const cdc::Finding* f = find_rule(result.findings, "CDC001");
+    ASSERT_NE(f, nullptr);
+    EXPECT_EQ(f->source_reg_name, "src_reg_reg");
+    EXPECT_EQ(f->dest_reg_name, "dst_reg_reg");
+    const cdc::Finding* mb = find_rule(result.findings, "CDC002");
+    ASSERT_NE(mb, nullptr);
+    EXPECT_EQ(mb->bus_width, 4u);
+}
+
+TEST(NetlistFrontendTest, GrayRecoverySuppressesCdc002LikeRtlAnalysis) {
+    // `gray_src_reg[i] = d[i] ^ d[i+1]` (adjacent-bit XOR of one bus, with
+    // the folded boundary bit fed directly) is the synthesized shape of the
+    // RTL gray encoder. Structural gray recovery must re-annotate it so the
+    // netlist reaches the same verdict as RTL: CDC001 for the (safe-per-bit)
+    // crossing, NO CDC002 — while the plain-copy crossing in bus_regroup.v
+    // still fires CDC002 (negative control).
+    AnalysisRequest req;
+    req.input_files = {fx("gray_regroup.v")};
+    req.top_module = "gray_regroup";
+    req.input_type = InputType::Netlist;
+    Analyzer analyzer;
+    auto result = analyzer.run(req);
+    ASSERT_TRUE(result.ok) << (result.errors.empty() ? "" : result.errors.front());
+
+    EXPECT_EQ(count_rule(result.findings, "CDC001"), 1u);
+    EXPECT_EQ(count_rule(result.findings, "CDC002"), 0u);
+    const cdc::Finding* f = find_rule(result.findings, "CDC001");
+    ASSERT_NE(f, nullptr);
+    EXPECT_EQ(f->source_reg_name, "gray_src_reg_reg");
+    EXPECT_EQ(f->dest_reg_name, "dst_reg_reg");
+}
+
+TEST(NetlistFrontendTest, XorCellClassifiesAsXorNotOr) {
+    // Regression for pattern-name logic-type inference: "XOR"/"XNOR" contain
+    // "OR" (and "NAND" contains "AND") as substrings, so match order decides.
+    // A cell named `XOR2_X1` must classify as LogicType::Xor — structural
+    // gray recognition depends on it.
+    auto fe = frontend::make_netlist_adapter();
+    ASSERT_NE(fe, nullptr);
+    frontend::FrontendOptions opts;
+    frontend::FrontendResult r = fe->elaborate({fx("xor_cells.v")}, "xor_cells", opts);
+    ASSERT_TRUE(r.ok) << (r.errors.empty() ? "" : r.errors.front());
+
+    const ir::Node* g = r.graph.find_node_by_name("g");
+    ASSERT_NE(g, nullptr);
+    EXPECT_EQ(g->logic_type, ir::LogicType::Xor);
+    const ir::Node* hn = r.graph.find_node_by_name("hn");
+    ASSERT_NE(hn, nullptr);
+    EXPECT_EQ(hn->logic_type, ir::LogicType::And);
+}
+
 TEST(NetlistFrontendTest, UnknownCellTreatedAsOpaqueNotSafe) {
     // A cell type absent from the library must be classified Unknown (opaque
     // combinational) and produce a warning — never silently assumed safe.

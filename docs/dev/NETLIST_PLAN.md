@@ -1,8 +1,9 @@
 # Netlist Frontend — Implementation Plan
 
-Status: implemented — PR1–PR7 complete; MVP (Phases 0–4) met with zero RTL
-regressions. Multi-bit bus regrouping, Liberty import, and RTL→netlist name
-mapping remain open (see Phase 6 / Known limitations).
+Status: implemented — PR1–PR7 (MVP) complete with zero RTL regressions; PR8
+adds multi-bit bus regrouping + structural gray-code recovery (netlist-only
+post-passes). Liberty import, RTL→netlist name mapping, and hierarchical
+elaboration remain open (see Phase 6 / Known limitations).
 Goal: analyze gate-level (post-synthesis) netlists with the existing OpenCDC
 pipeline by adding a second frontend behind the `ir::Graph` seam, without
 changing RTL behavior.
@@ -189,8 +190,8 @@ New: `src/frontend/netlist/{netlist_lexer,netlist_parser,netlist_adapter}.{h,cpp
    |---|---|
    | CDC001, 003, 004, 006, 008, 009, 011, 012, 013 | Full (structural) |
    | Sync-chain 2FF/3FF detection | Full — often *more* accurate than RTL |
-   | CDC002 multi-bit | Degraded: buses are bit-blasted → add name-prefix bus regrouping heuristic (`data[3]`/`data[2]`… → `data`) + guidance to use regex waivers |
-   | Gray/handshake/FIFO pattern recognition | Degraded (structural only; names mangled by synthesis) |
+   | CDC002 multi-bit | Full since PR8 — bus regrouping re-merges `<base>[i]` bit flops into wide registers (regardless of granularity) |
+   | Gray pattern recognition (CDC002 suppression) | Full since PR8 for the canonical `x ^ (x>>1)` encoder (structural recovery); handshake/FIFO still degraded (names mangled by synthesis) |
    | CDC005 / CDC007 | Supported when cell map defines reset/enable pins; otherwise explicit frontend warning |
 
 4. `docs/netlist.md` documents the mapping table, cell-map format, and the
@@ -241,6 +242,16 @@ New: `src/frontend/netlist/{netlist_lexer,netlist_parser,netlist_adapter}.{h,cpp
 
 ## Phase 6 — Stretch (post-MVP)
 
+Done (PR8):
+- Multi-bit bus regrouping: `<base>[<bit>]` bit-flop groups re-merged into
+  wide registers (`src/frontend/netlist/regroup.{h,cpp}`), run before clock
+  resolution; per-bit nets cleaned by compaction. Restores CDC001 count and
+  CDC002 bus-width parity with RTL.
+- Structural gray-code recovery: canonical `x ^ (x>>1)` encoder shape
+  re-recognized and re-annotated (`annotate_gray_registers`), restoring
+  CDC002 gray verdict parity.
+
+Remaining:
 - Multi-module/hierarchical netlist elaboration (module defs + instance
   expansion with prefixing).
 - Liberty (`.lib`) import → generate `CellDef`s automatically.
@@ -256,7 +267,7 @@ New: `src/frontend/netlist/{netlist_lexer,netlist_parser,netlist_adapter}.{h,cpp
 | Vendor netlist dialect quirks (escaped ids, attributes, `(* keep *)`) | Lexer support + fixtures copied from real DC/ICC/Yosys output |
 | Graph explosion on millions of cells | Passthrough collapsing at build time, Phase 5 compaction, raised/overridable limits, truncation → CDC010 |
 | Wrong cell polarity/roles produce false "safe" verdicts | Unknown cells are never assumed safe; cell map is explicit; frontend warning lists unmapped cells |
-| CDC002 bit-blast false positives | Bus regrouping heuristic + regex waiver guidance |
+| CDC002 bit-blast false positives | **Done (PR8):** bus regrouping + structural gray recovery; regex waiver guidance remains for unusual gray styles |
 | RTL waivers don't match synthesized names | Interim: regex/wildcard waivers; Phase 6 name-map |
 | Pattern rules (gray/handshake) silent post-synthesis | Documented degradation; structural sync detection compensates |
 | Refactor regressions (Phase 0) | Pure-move refactor, golden tests must stay byte-identical |

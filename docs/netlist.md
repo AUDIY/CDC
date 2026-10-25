@@ -120,7 +120,7 @@ The netlist frontend maps instances and nets onto the shared IR:
 
 | Netlist element | IR node |
 |-----------------|---------|
-| `dff`/`dff_reset`/`dff_enable`/`dff_set_reset` cell | `Register` (width 1 — netlists are bit-blasted), with `clock_domain`, `root_clock`, `reset_signal`/polarity/async, `clock_is_gated`/`clock_is_muxed` |
+| `dff`/`dff_reset`/`dff_enable`/`dff_set_reset` cell | `Register` (bit-blasted per-bit flops are re-merged into wide registers by bus regrouping, below), with `clock_domain`, `root_clock`, `reset_signal`/polarity/async, `clock_is_gated`/`clock_is_muxed` |
 | `latch` cell | `Register` with `is_latch = true` |
 | `icg` cell | `And(clock, enable)` feeding the gated net, so clock resolution flags it as gated |
 | `comb` / gate primitive | `Combinational` node (`And`/`Or`/`Xor`/`Mux`/...) |
@@ -138,21 +138,36 @@ CDC001, CDC003, CDC004, CDC006, CDC008, CDC009, CDC011, CDC012, CDC013 — these
 are structural (register/graph topology) and are detected from the netlist IR
 directly.
 
+### Multi-bit buses and pattern recovery
+
+Two netlist-only post-passes restore the register granularity and the most
+common pattern that synthesis destroys (see
+`src/frontend/netlist/regroup.{h,cpp}`):
+
+- **Bus regrouping**: synthesis bit-blasts one RTL register `bus[7:0]` into 8
+  one-bit flops named `bus[i]` (yosys emits `\src_reg_reg[0] ` etc.). The
+  frontend re-merges each `<base>[<bit>]` group into a single wide register —
+  same clock domain, reset signal/polarity, async-ness, and latch-ness —
+  re-pointing every edge, so CDC001 reports **one** wide crossing and CDC002
+  sees the real bus width, exactly like RTL. Groups that disagree on any of
+  those properties stay bit-blasted (always correct, just coarser). Nets are
+  left per-bit; the existing compaction then collapses the now pass-through
+  ones without touching clock/reset cones.
+- **Structural gray recovery**: the RTL gray transform `x ^ (x >> 1)`
+  survives synthesis as adjacent-bit XORs of one bus feeding the register's D
+  pins (with the folded boundary bit fed directly). The frontend
+  re-recognizes that shape conservatively — every bit of a group must be an
+  adjacent-same-base XOR, a direct same-base reference, or a neutral register
+  feed, with a single common base — and re-annotates `is_gray_coded` so
+  CDC002 reaches the same verdict as RTL. XOR/parity trees and adders do not
+  match the signature (mixed bases), but the recognition is structural: a
+  non-gray bus that happens to match the canonical shape would be honored.
+
 ### What degrades vs. RTL
 
-Semantic pattern rules rely on behavioral source that does not survive
-synthesis. This is a documented degradation, compensated by structural
-detection where possible:
-
-- **Gray-code / handshake / async-FIFO pattern recognition** (CDC002 family) is
-  mostly silent after synthesis: the XOR/encoding structure is flattened. The
-  structural synchronizer detection still reports whether a destination is
-  synchronized.
-- **Multi-bit crossings are bit-blasted**: one RTL register `bus[7:0]` becomes
-  8 one-bit flops, so CDC001 reports 8 narrow crossings instead of 1 wide one
-  (and CDC002 grouping is lost) until bus regrouping lands. The set of crossed
-  clock-domain pairs is identical. See the parity harness below, which treats
-  this granularity difference explicitly.
+- **Handshake / async-FIFO pattern recognition** stays silent after synthesis:
+  the protocol structure is flattened into ordinary logic. The structural
+  synchronizer detection still reports whether a destination is synchronized.
 - **Reset modeling is coarser** than RTL (polarity/async come from the cell map
   or defaults, not from always-block sensitivity).
 
@@ -210,8 +225,7 @@ python3 benchmarks/scripts/synth_netlist.py --binary build/src/opencdc \
 python3 benchmarks/scripts/synth_netlist.py --binary build/src/opencdc \
   --designs 'a.sv:top_a;b.sv:top_b'
 
-# Also fail on per-rule count deltas (bit-blast granularity), not just
-# domain-pair mismatches
+# Also fail on per-rule count deltas, not just domain-pair mismatches
 python3 benchmarks/scripts/synth_netlist.py --binary build/src/opencdc \
   --strict-counts --rtl design.sv --top design
 ```
@@ -219,10 +233,20 @@ python3 benchmarks/scripts/synth_netlist.py --binary build/src/opencdc \
 **Pass/fail** is **domain-pair set equality**: every clock-domain pair crossed
 in RTL must also be crossed in the netlist and vice versa — a missed or
 fabricated crossing fails the check. Per-rule **count** deltas are warnings by
-default (multi-bit bit-blasting legitimately reports N narrow crossings for one
-wide RTL register); `--strict-counts` escalates them to failures once bus
-regrouping lands. Reset-centric rules (CDC007/CDC009) are excluded from the
-comparison because netlist reset modeling is intentionally coarser.
+default; `--strict-counts` escalates them to failures, which is meaningful now
+that bus regrouping restores RTL register granularity. Reset-centric rules
+(CDC007/CDC009) are excluded from the comparison because netlist reset
+modeling is intentionally coarser.
+
+Some designs cannot reach strict parity for legitimate reasons — document
+these when running the harness on a new corpus:
+
+- **Optimized-away logic**: registers with no observable consumer (no output
+  port) are removed by synthesis; RTL reports their crossings, the netlist
+  cannot.
+- **Equivalent-flop deduplication**: synthesis merges functionally identical
+  replicas (e.g. the two meta stages of a reconvergence), legitimately
+  reducing the crossing count.
 
 ## Supported Verilog subset
 
@@ -254,11 +278,11 @@ measurements.
 
 ## Known limitations
 
-- **Multi-bit bus regrouping** is not yet done: bit-blasted buses report per-bit
-  crossings (correct domain pairs, finer granularity). Tracked for a future
-  phase; the parity harness exposes it as a count warning.
 - **Liberty (`.lib`) import** is not implemented; use a YAML cell map.
 - **RTL→netlist name mapping** for applying RTL-authored waivers to netlist
   runs is deferred; use regex/wildcard waivers in the interim.
 - **Multi-module hierarchical netlists** are parsed as a single top module;
   deep hierarchy elaboration is a stretch goal.
+- **Gray recovery is structural**: it recognizes the canonical adjacent-bit
+  XOR shape only; gray styles that synthesize differently (e.g. LFSR-style)
+  are not recognized and report CDC002 as an ordinary multi-bit crossing.
