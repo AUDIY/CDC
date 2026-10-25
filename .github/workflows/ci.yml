@@ -130,6 +130,39 @@ jobs:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
 
+  netlist-parity:
+    name: RTL/netlist parity (yosys)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential yosys
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Netlist frontend tests
+        run: |
+          ctest --test-dir build --output-on-failure \
+            -R "Netlist|Liberty|CellLibrary|IrCompact"
+
+      - name: RTL<->netlist parity harness (strict counts)
+        # Synthesizes each RTL design with yosys, analyzes both versions with
+        # --input-type rtl / netlist, and requires domain-pair AND per-rule
+        # count parity. The same set passes locally; keep in sync with
+        # docs/netlist.md (parity exclusions are documented there).
+        run: |
+          F=tests/fixtures/sv
+          python3 benchmarks/scripts/synth_netlist.py --binary build/src/opencdc \
+            --strict-counts \
+            --designs "$F/multi_bit_crossing.sv:multi_bit_crossing;$F/gray_coded_crossing.sv:gray_coded_crossing;$F/muxed_crossing.sv:muxed_crossing;$F/gated_crossing.sv:gated_crossing;$F/sync_2ff.sv:sync_2ff;$F/sync_3ff.sv:sync_3ff;$F/multi_domain.sv:multi_domain;$F/wire_crossing.sv:wire_crossing;$F/comb_crossing.sv:comb_crossing;$F/toggle_sync.sv:toggle_sync;$F/gated_crossing_cdc004.sv:gated_crossing_cdc004;$F/generate_crossing.sv:generate_crossing;$F/async_reset_2ff.sv:async_reset_2ff"
+
   lint:
     runs-on: ubuntu-latest
     steps:

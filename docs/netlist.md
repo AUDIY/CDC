@@ -243,7 +243,8 @@ fabricated crossing fails the check. Per-rule **count** deltas are warnings by
 default; `--strict-counts` escalates them to failures, which is meaningful now
 that bus regrouping restores RTL register granularity. Reset-centric rules
 (CDC007/CDC009) are excluded from the comparison because netlist reset
-modeling is intentionally coarser.
+modeling is intentionally coarser. The 13-design strict corpus runs in CI
+(`netlist-parity` job in `.github/workflows/ci.yml`).
 
 Some designs cannot reach strict parity for legitimate reasons — document
 these when running the harness on a new corpus:
