@@ -208,3 +208,79 @@ TEST(LspTest, AnalysisTimeoutDisabled) {
     auto diagnostics = server.analyze_document("file:///tmp/lsp_notimeout_top.sv", source);
     EXPECT_TRUE(diagnostics.empty());
 }
+
+// --- Netlist (gate-level) documents -------------------------------------
+
+TEST(LspTest, NetlistDocumentProducesCrossingDiagnostics) {
+    // A gate-level document auto-detects as netlist and analyzes with the
+    // netlist frontend; its crossings must surface as diagnostics.
+    LspServer server;
+    server.set_top_module("mux_clock");
+
+    const std::string source =
+        "module mux_clock (input clk_a, input clk_b, input clk_sel, input d, output q);\n"
+        "  wire selected_clk;\n"
+        "  wire src_ff;\n"
+        "  $_MUX_ m0 (.A(clk_b), .B(clk_a), .S(clk_sel), .Y(selected_clk));\n"
+        "  DFF_X1 src_ff_reg (.C(clk_a), .D(d), .Q(src_ff));\n"
+        "  DFF_X1 dst_ff_reg (.C(selected_clk), .D(src_ff), .Q(q));\n"
+        "endmodule\n";
+    auto diagnostics = server.analyze_document("file:///tmp/mux_clock.v", source);
+
+    bool found_cdc001 = false;
+    for (const auto& d : diagnostics) {
+        if (d.code == "CDC001")
+            found_cdc001 = true;
+        EXPECT_NE(d.code, "parse-error");  // netlist must parse cleanly
+    }
+    EXPECT_TRUE(found_cdc001);
+}
+
+TEST(LspTest, ForcedInputTypeOverridesAutoDetection) {
+    // Forcing the RTL frontend on a gate netlist must route through slang,
+    // which fails on unknown cell instantiations — proving the --input-type
+    // setting reaches the analysis pipeline (auto-detection would pick the
+    // netlist frontend and succeed).
+    LspServer server;
+    server.set_top_module("mux_clock");
+    server.set_input_type("rtl");
+
+    const std::string source =
+        "module mux_clock (input clk_a, input clk_b, input clk_sel, input d, output q);\n"
+        "  wire selected_clk;\n"
+        "  wire src_ff;\n"
+        "  $_MUX_ m0 (.A(clk_b), .B(clk_a), .S(clk_sel), .Y(selected_clk));\n"
+        "  DFF_X1 src_ff_reg (.C(clk_a), .D(d), .Q(src_ff));\n"
+        "  DFF_X1 dst_ff_reg (.C(selected_clk), .D(src_ff), .Q(q));\n"
+        "endmodule\n";
+    auto diagnostics = server.analyze_document("file:///tmp/mux_clock.v", source);
+
+    bool found_parse_error = false;
+    for (const auto& d : diagnostics) {
+        if (d.code == "parse-error")
+            found_parse_error = true;
+    }
+    EXPECT_TRUE(found_parse_error);
+}
+
+TEST(LspTest, ParseErrorMappedToSourceLine) {
+    // Parser errors carry a "file:line:col:" prefix; the diagnostic must be
+    // positioned on that source line (0-based), not at the document start.
+    LspServer server;
+    server.set_top_module("bad_netlist");
+    server.set_input_type("netlist");
+
+    const std::string source =
+        "module bad_netlist (input clk, output q);\n"  // line 1
+        "  wire n1 @ ;\n"                              // line 2: stray token
+        "  DFF_X1 f0 (.C(clk), .D(n1), .Q(q));\n"      // line 3
+        "endmodule\n";
+    auto diagnostics = server.analyze_document("file:///tmp/bad_netlist.v", source);
+
+    bool found_located_error = false;
+    for (const auto& d : diagnostics) {
+        if (d.code == "parse-error" && d.range.start.line == 1)
+            found_located_error = true;
+    }
+    EXPECT_TRUE(found_located_error);
+}

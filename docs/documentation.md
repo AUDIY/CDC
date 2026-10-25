@@ -366,6 +366,21 @@ print(report.summary())
 opencdc-lsp --port 8080 --top my_module
 ```
 
+### Input type
+
+Documents are classified per-document by content (behavioral constructs →
+slang RTL frontend, structural gate content → netlist frontend). When
+detection misreads a document — a gate netlist containing an RTL keyword or
+a purely continuous-assign RTL file — force the frontend:
+
+```bash
+opencdc-lsp --port 8080 --top my_module --input-type netlist   # auto | rtl | netlist
+```
+
+Diagnostics for both frontends include parse errors (positioned from the
+`file:line:col` prefix the frontends emit), analyzer warnings (e.g. unmapped
+netlist cells), and CDC findings anchored at their source lines.
+
 ### IDE Integration
 
 The LSP server provides real-time CDC feedback in editors that support Language Server Protocol.

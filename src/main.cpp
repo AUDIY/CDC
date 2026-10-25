@@ -60,6 +60,7 @@ static void print_usage(const char* prog) {
         << "  --config <file>      Configuration file (YAML)\n"
         << "  --waiver <file>      Waiver file\n"
         << "  --constraints <file> Clock constraints file\n"
+        << "  --input-type <type>  Frontend: auto (default) | rtl | netlist\n"
         << "\nGeneral:\n"
         << "  --version            Show version information\n"
         << "  --help               Show this help message\n";
@@ -241,6 +242,7 @@ int run(int argc, const char* argv[]) {
         std::string config_path;
         std::string waiver_path;
         std::string constraints_path;
+        std::string input_type;
 
         for (int i = 2; i < argc; ++i) {
             std::string arg = argv[i];
@@ -263,11 +265,14 @@ int run(int argc, const char* argv[]) {
                 waiver_path = argv[++i];
             else if (arg == "--constraints" && i + 1 < argc)
                 constraints_path = argv[++i];
+            else if (arg == "--input-type" && i + 1 < argc)
+                input_type = argv[++i];
             else if (arg == "--help" || arg == "-h") {
                 print_usage(argv[0]);
                 return static_cast<int>(ExitCode::OK);
             } else if (arg == "--port" || arg == "--top" || arg == "--config" ||
-                       arg == "--waiver" || arg == "--constraints") {
+                       arg == "--waiver" || arg == "--constraints" ||
+                       arg == "--input-type") {
                 std::cerr << "Error: option '" << arg << "' requires a value\n";
                 return static_cast<int>(ExitCode::INPUT_ERROR);
             } else {
@@ -281,6 +286,15 @@ int run(int argc, const char* argv[]) {
         server.set_config_path(config_path);
         server.set_waiver_path(waiver_path);
         server.set_constraints_path(constraints_path);
+        if (!input_type.empty()) {
+            frontend::InputType parsed_input_type;
+            std::string it_error;
+            if (!frontend::parse_input_type(input_type, parsed_input_type, &it_error)) {
+                std::cerr << "Error: " << it_error << "\n";
+                return static_cast<int>(ExitCode::INPUT_ERROR);
+            }
+            server.set_input_type(input_type);
+        }
         server.start(port);
         if (server.bound_port() == 0) {
             std::cerr << "Error: could not bind LSP server to port " << port << "\n";

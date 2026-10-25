@@ -271,6 +271,12 @@ Done (PR12):
   global `POSITION_INDEPENDENT_CODE` so fetched static deps link into the
   module).
 
+Done (PR13):
+- LSP netlist diagnostics: `--input-type` (auto/rtl/netlist) forces the
+  frontend, parse errors are positioned from their `file:line:col` prefix,
+  and analyzer warnings (unmapped cells, muxed-clock annotation) publish as
+  diagnostics.
+
 Remaining:
 - Multi-module/hierarchical netlist elaboration (module defs + instance
   expansion with prefixing).

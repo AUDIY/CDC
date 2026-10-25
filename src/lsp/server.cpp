@@ -14,6 +14,7 @@
 #include <sstream>
 
 #include "analysis/analyzer.h"
+#include "frontend/frontend.h"
 #include "lsp/socket_compat.h"
 #include "util/temp_file.h"
 
@@ -44,6 +45,43 @@ bool is_loopback_ipv4(const std::string& ip) {
                 return false;
     }
     return true;
+}
+
+// Extract the first "file:line[:col]:" location from an error string — both
+// frontends emit diagnostics in that shape (slang: "file:line:col: error: ...",
+// netlist parser: "file:line:col: msg"). Returns false when no location is
+// present (configuration/option errors), which then map to the document start.
+bool first_error_location(const std::string& err, int& line, int& col) {
+    size_t p = 0;
+    while ((p = err.find(':', p)) != std::string::npos) {
+        size_t q = p + 1;
+        size_t digits = 0;
+        while (q < err.size() && std::isdigit(static_cast<unsigned char>(err[q]))) {
+            ++q;
+            ++digits;
+        }
+        if (digits == 0 || q >= err.size() || err[q] != ':') {
+            ++p;
+            continue;
+        }
+        // Two-component form "line:col:" first...
+        size_t r = q + 1;
+        size_t col_digits = 0;
+        while (r < err.size() && std::isdigit(static_cast<unsigned char>(err[r]))) {
+            ++r;
+            ++col_digits;
+        }
+        if (col_digits > 0 && r < err.size() && err[r] == ':') {
+            line = std::stoi(err.substr(p + 1, q - p - 1));
+            col = std::stoi(err.substr(q + 1, r - q - 1));
+            return line > 0;
+        }
+        // ...then the column-less form "line:".
+        line = std::stoi(err.substr(p + 1, q - p - 1));
+        col = 1;
+        return line > 0;
+    }
+    return false;
 }
 }  // namespace
 
@@ -325,7 +363,7 @@ std::vector<Diagnostic> LspServer::analyze_document(const std::string& uri,
         return false;
     };
 
-    std::string top_module, config_path, waiver_path, constraints_path;
+    std::string top_module, config_path, waiver_path, constraints_path, input_type;
     {
         // Setters may be called from another thread; snapshot under lock.
         std::lock_guard<std::mutex> lock(mutex_);
@@ -333,6 +371,7 @@ std::vector<Diagnostic> LspServer::analyze_document(const std::string& uri,
         config_path = config_path_;
         waiver_path = waiver_path_;
         constraints_path = constraints_path_;
+        input_type = input_type_;
     }
     if (top_module.empty()) {
         return diagnostics;
@@ -431,6 +470,18 @@ std::vector<Diagnostic> LspServer::analyze_document(const std::string& uri,
     request.waiver_path = waiver_path;
     request.constraints_path = constraints_path;
 
+    // Forced frontend selection (lsp --input-type). "auto" (the default) keeps
+    // per-document content detection, so gate-level documents analyze with the
+    // netlist frontend and behavioral documents with slang; forcing matters
+    // when detection misreads a document (e.g. a netlist containing an RTL
+    // keyword such as `table` or `primitive`).
+    if (!input_type.empty()) {
+        frontend::InputType parsed = frontend::InputType::Auto;
+        std::string it_error;
+        if (frontend::parse_input_type(input_type, parsed, &it_error))
+            request.input_type = parsed;
+    }
+
     analysis::Analyzer analyzer;
     analysis::AnalysisResult result = analyzer.run(request);
 
@@ -438,19 +489,46 @@ std::vector<Diagnostic> LspServer::analyze_document(const std::string& uri,
     if (check_timeout())
         return diagnostics;
 
-    if (!result.ok) {
+    // Frontend/analyzer warnings (unmapped netlist cells, muxed-clock
+    // annotation requests, ...) surface as document-level diagnostics so
+    // netlist authors see them in the editor.
+    for (const auto& w : result.warnings) {
         Diagnostic diag;
         diag.range.start.line = 0;
         diag.range.start.character = 0;
         diag.range.end.line = 0;
         diag.range.end.character = 0;
-        diag.severity = "error";
-        diag.code = "parse-error";
+        diag.severity = "warning";
+        diag.code = "analysis-warning";
         diag.source = "opencdc";
-        for (const auto& err : result.errors) {
-            diag.message += err + "\n";
-        }
+        diag.message = w;
         diagnostics.push_back(diag);
+    }
+
+    if (!result.ok) {
+        // One diagnostic per error, positioned from its "file:line[:col]:"
+        // prefix (both frontends emit one); entries without a location land
+        // at the document start. slang batches all of its diagnostics into a
+        // single entry — its first location is the primary error.
+        for (const auto& err : result.errors) {
+            Diagnostic diag;
+            diag.range.start.line = 0;
+            diag.range.start.character = 0;
+            diag.range.end.line = 0;
+            diag.range.end.character = 0;
+            int line = 0, col = 0;
+            if (first_error_location(err, line, col)) {
+                diag.range.start.line = line - 1;
+                diag.range.start.character = col - 1;
+                diag.range.end.line = line - 1;
+                diag.range.end.character = col - 1 + 10;
+            }
+            diag.severity = "error";
+            diag.code = "parse-error";
+            diag.source = "opencdc";
+            diag.message = err;
+            diagnostics.push_back(diag);
+        }
         return diagnostics;
     }
 

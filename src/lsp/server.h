@@ -92,6 +92,14 @@ class LspServer {
         std::lock_guard<std::mutex> lock(mutex_);
         constraints_path_ = path;
     }
+    // Frontend selection: "auto" (default, per-document content detection),
+    // "rtl", or "netlist". Forces the frontend for documents whose content
+    // misleads detection (gate netlists containing RTL keywords and vice
+    // versa); invalid values keep "auto".
+    void set_input_type(const std::string& type) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        input_type_ = type;
+    }
     void set_allow_remote(bool allow) {
         std::lock_guard<std::mutex> lock(mutex_);
         allow_remote_ = allow;
@@ -142,6 +150,7 @@ class LspServer {
     std::string config_path_;
     std::string waiver_path_;
     std::string constraints_path_;
+    std::string input_type_ = "auto";
 
     std::string bind_address_ = "127.0.0.1";
     bool allow_remote_ = false;
