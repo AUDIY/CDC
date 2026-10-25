@@ -1,0 +1,5 @@
+# rtl_name netlist_name — synthesis renamed the RTL registers.
+data_reg   u_data/ff_reg
+dst_reg    u_dst/ff_reg
+# Stale entry: must surface as a warning, not silently pass.
+ghost_reg  u_nowhere/ff

@@ -204,6 +204,8 @@ input:
 input:
   type: auto          # auto | rtl | netlist
   cell_map: cells.yaml
+  liberty: pdk/NangateOpenCellLibrary.lib
+  name_map: rtl_to_netlist.map
   max_nodes: 5000000
   max_edges: 10000000
 ```
@@ -308,10 +310,33 @@ opencdc check netlist.v --top top --input-type netlist \
   --liberty pdk/NangateOpenCellLibrary.lib --cell-map my_overrides.yaml
 ```
 
+## Register name mapping (`--name-map`)
+
+Synthesis renames registers (`src_reg` → `u_0/ff`), so waivers and reports
+authored against RTL names stop matching netlist findings. A name map
+restores the RTL names:
+
+```bash
+opencdc check synthesized.v --top top --input-type netlist \
+  --name-map rtl_to_netlist.map
+```
+
+```text
+# rtl_name netlist_name     (blank lines and '#' comments are ignored)
+data_reg   u_core/ff
+dst_reg    u_top/ff
+```
+
+Registers whose `<base>[<bit>]` names match an entry's netlist side are
+renamed to the entry's RTL side **before** gray recovery and bus regrouping,
+so each bit group merges under its RTL name and findings report RTL names at
+RTL register granularity. A rename is skipped with a warning when the target
+name already exists, and entries that match no register are reported as
+stale. Only register names are mapped (clock-domain names come from ports);
+clock waivers keyed on RTL clock names should still use regex/wildcards.
+
 ## Known limitations
 
-- **RTL→netlist name mapping** for applying RTL-authored waivers to netlist
-  runs is deferred; use regex/wildcard waivers in the interim.
 - **Multi-module hierarchical netlists** are parsed as a single top module;
   deep hierarchy elaboration is a stretch goal.
 - **Gray recovery is structural**: it recognizes the canonical adjacent-bit

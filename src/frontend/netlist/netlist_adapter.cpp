@@ -9,6 +9,7 @@
 #include "cell/liberty.h"
 #include "clock/resolve.h"
 #include "frontend/netlist/netlist_parser.h"
+#include "frontend/netlist/name_map.h"
 #include "frontend/netlist/regroup.h"
 #include "ir/compact.h"
 
@@ -660,6 +661,19 @@ FrontendResult NetlistAdapter::elaborate(const std::vector<std::string>& files,
     std::vector<std::string> build_warnings;
     builder.build(build_warnings);
     result.warnings.insert(result.warnings.end(), build_warnings.begin(), build_warnings.end());
+
+    // RTL-to-netlist register name mapping, applied right after build and
+    // BEFORE gray recovery/regrouping so bit groups merge under their RTL
+    // names and RTL-authored waivers match netlist findings.
+    if (!options.name_map_path.empty()) {
+        std::vector<std::pair<std::string, std::string>> nm_entries;
+        std::string nm_err;
+        if (!netlist::load_name_map(options.name_map_path, nm_entries, &nm_err)) {
+            result.errors.push_back(nm_err);
+            return result;
+        }
+        apply_name_map(result.graph, nm_entries, &result.warnings);
+    }
 
     // Netlist post-passes on the built graph, in order:
     //  1. Structural gray-code recovery — re-recognizes the `x ^ (x>>1)`

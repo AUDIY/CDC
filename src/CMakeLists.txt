@@ -10,6 +10,7 @@ set(OPENCDC_CORE_SOURCES
     frontend/netlist/netlist_lexer.cpp
     frontend/netlist/netlist_parser.cpp
     frontend/netlist/netlist_adapter.cpp
+    frontend/netlist/name_map.cpp
     frontend/netlist/regroup.cpp
     clock/domain.cpp
     clock/resolve.cpp

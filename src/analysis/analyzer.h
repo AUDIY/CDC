@@ -38,6 +38,8 @@ struct AnalysisRequest {
     std::string cell_map_path;
     // Liberty (.lib) file for the netlist frontend (cell definitions).
     std::string liberty_path;
+    // RTL->netlist register name map for the netlist frontend.
+    std::string name_map_path;
     // Graph safety limit overrides (0 = frontend defaults).
     size_t max_nodes = 0;
     size_t max_edges = 0;

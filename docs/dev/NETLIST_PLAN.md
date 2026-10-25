@@ -257,11 +257,16 @@ Done (PR9):
   with logic-type hints from output `function` expressions; precedence
   defaults < liberty < YAML cell map.
 
+Done (PR10):
+- `--name-map` RTL→netlist register mapping
+  (`src/frontend/netlist/name_map.{h,cpp}`, `input.name_map`): netlist
+  registers renamed to their RTL names after build and before gray
+  recovery/regrouping, so RTL-authored waivers keep matching; stale
+  entries and name collisions warn.
+
 Remaining:
 - Multi-module/hierarchical netlist elaboration (module defs + instance
   expansion with prefixing).
-- `--name-map` RTL→netlist register mapping so RTL-authored waivers apply to
-  netlist runs (high signoff value).
 - Low-power cells (isolation/retention) as safe-crossing blackboxes.
 - LSP handling for netlist files (diagnostics only).
 
@@ -273,7 +278,7 @@ Remaining:
 | Graph explosion on millions of cells | Passthrough collapsing at build time, Phase 5 compaction, raised/overridable limits, truncation → CDC010 |
 | Wrong cell polarity/roles produce false "safe" verdicts | Unknown cells are never assumed safe; cell map is explicit; frontend warning lists unmapped cells |
 | CDC002 bit-blast false positives | **Done (PR8):** bus regrouping + structural gray recovery; regex waiver guidance remains for unusual gray styles |
-| RTL waivers don't match synthesized names | Interim: regex/wildcard waivers; Phase 6 name-map |
+| RTL waivers don't match synthesized names | **Done (PR10):** `--name-map` RTL→netlist register mapping; regex/wildcard waivers remain the fallback for clock-domain names |
 | Pattern rules (gray/handshake) silent post-synthesis | Documented degradation; structural sync detection compensates |
 | Refactor regressions (Phase 0) | Pure-move refactor, golden tests must stay byte-identical |
 

@@ -540,6 +540,8 @@ static void parse_input_node(const YAML::Node& node, Config& config, std::string
         config.cell_map_path = node["cell_map"].as<std::string>();
     if (node["liberty"])
         config.liberty_path = node["liberty"].as<std::string>();
+    if (node["name_map"])
+        config.name_map_path = node["name_map"].as<std::string>();
     if (node["max_nodes"]) {
         try {
             long long n = node["max_nodes"].as<long long>();

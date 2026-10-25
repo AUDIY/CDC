@@ -209,6 +209,39 @@ TEST(NetlistFrontendTest, GrayRecoverySuppressesCdc002LikeRtlAnalysis) {
     EXPECT_EQ(f->dest_reg_name, "dst_reg_reg");
 }
 
+TEST(NetlistFrontendTest, NameMapRenamesNetlistRegistersToRtlNames) {
+    // Synthesis renamed `data_reg`/`dst_reg` into `u_data/ff_reg[i]`/
+    // `u_dst/ff_reg[i]`. The name map restores the RTL names before bus
+    // regrouping, so findings (and RTL-authored waivers keyed on them) see
+    // the RTL register names at RTL granularity.
+    AnalysisRequest req;
+    req.input_files = {fx("namemap_crossing.v")};
+    req.top_module = "namemap_crossing";
+    req.input_type = InputType::Netlist;
+    req.name_map_path = fx("namemap_crossing.map");
+    Analyzer analyzer;
+    auto result = analyzer.run(req);
+    ASSERT_TRUE(result.ok) << (result.errors.empty() ? "" : result.errors.front());
+
+    EXPECT_EQ(count_rule(result.findings, "CDC001"), 1u);
+    const cdc::Finding* f = find_rule(result.findings, "CDC001");
+    ASSERT_NE(f, nullptr);
+    EXPECT_EQ(f->source_reg_name, "data_reg");
+    EXPECT_EQ(f->dest_reg_name, "dst_reg");
+    // The mapped bit group regroups under the RTL name at full bus width.
+    EXPECT_EQ(count_rule(result.findings, "CDC002"), 1u);
+    const cdc::Finding* mb = find_rule(result.findings, "CDC002");
+    ASSERT_NE(mb, nullptr);
+    EXPECT_EQ(mb->bus_width, 2u);
+    // A stale map entry surfaces as a warning instead of silently passing.
+    bool warned = false;
+    for (const auto& w : result.warnings) {
+        if (w.find("ghost_reg") != std::string::npos)
+            warned = true;
+    }
+    EXPECT_TRUE(warned);
+}
+
 TEST(NetlistFrontendTest, XorCellClassifiesAsXorNotOr) {
     // Regression for pattern-name logic-type inference: "XOR"/"XNOR" contain
     // "OR" (and "NAND" contains "AND") as substrings, so match order decides.

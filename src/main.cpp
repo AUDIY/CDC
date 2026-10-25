@@ -50,6 +50,7 @@ static void print_usage(const char* prog) {
         << "  --input-type <t>     Input language: auto (default), rtl, netlist\n"
         << "  --cell-map <file>    YAML cell map for netlist input (DFF/Latch/ICG pins)\n"
         << "  --liberty <file>     Liberty (.lib) cell definitions for netlist input\n"
+        << "  --name-map <file>    RTL<->netlist register name map ('rtl netlist' per line)\n"
         << "  --max-nodes <n>      Override graph node safety limit\n"
         << "  --max-edges <n>      Override graph edge safety limit\n"
         << "  --verbose            Enable verbose output\n"
@@ -172,6 +173,8 @@ static int parse_args(int argc, const char* argv[], CheckOptions& opts) {
             opts.cell_map_path = argv[++i];
         } else if (arg == "--liberty" && i + 1 < argc) {
             opts.liberty_path = argv[++i];
+        } else if (arg == "--name-map" && i + 1 < argc) {
+            opts.name_map_path = argv[++i];
         } else if (arg == "--max-nodes" && i + 1 < argc) {
             try {
                 long long n = std::stoll(argv[++i]);
@@ -381,6 +384,8 @@ int run(int argc, const char* argv[]) {
         request.cell_map_path = opts.cell_map_path;
     if (!opts.liberty_path.empty())
         request.liberty_path = opts.liberty_path;
+    if (!opts.name_map_path.empty())
+        request.name_map_path = opts.name_map_path;
     if (opts.max_nodes > 0)
         request.max_nodes = opts.max_nodes;
     if (opts.max_edges > 0)
