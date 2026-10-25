@@ -1,0 +1,103 @@
+// Minimal Nangate-style Liberty subset for importer tests: one async-reset
+// flop, a latch, buffers/inverters, and basic gates. Only the classification
+// subset (cell/pin/ff/latch groups + direction/clock/function attributes) is
+// required to parse; timing groups appear as noise the importer must skip.
+library (NangateOpenCellLibrary) {
+  delay_model : table_lookup;
+
+  cell (DFF_X1) {
+    area : 1.500;
+    pin (CK) {
+      direction : input;
+      clock : true;
+    }
+    pin (D) {
+      direction : input;
+      function : "D";
+    }
+    pin (CDN) {
+      direction : input;
+    }
+    pin (Q) {
+      direction : output;
+      function : "IQ";
+      timing () {
+        related_pin : "CK";
+        cell_rise (scalar) { values ("1.0"); }
+      }
+    }
+    ff (IQ, IQN) {
+      clocked_on : "CK";
+      next_state : "D";
+      clear : "!CDN";
+      clear_preset_var1 : 1;
+    }
+  }
+
+  cell (DFFR_X2) {
+    area : 2.000;
+    pin (CLK) { direction : input; clock : true; }
+    pin (DI) { direction : input; }
+    pin (R) { direction : input; }
+    pin (Q) { direction : output; function : "IQ"; }
+    ff (IQ, IQN) {
+      clocked_on : "CLK";
+      next_state : "DI";
+      clear : "R";
+    }
+  }
+
+  cell (LATCH_X1) {
+    area : 1.200;
+    pin (G) { direction : input; clock : true; }
+    pin (D) { direction : input; }
+    pin (Q) { direction : output; function : "IQ"; }
+    latch (IQ, IQN) {
+      enable : "G";
+      data_in : "D";
+      data_out : "IQ";
+    }
+  }
+
+  cell (BUF_X1) {
+    area : 0.500;
+    pin (A) { direction : input; }
+    pin (Y) { direction : output; function : "A"; }
+  }
+
+  cell (INV_X1) {
+    area : 0.400;
+    pin (A) { direction : input; }
+    pin (Y) { direction : output; function : "!A"; }
+  }
+
+  cell (AND2_X1) {
+    area : 0.800;
+    pin (A) { direction : input; }
+    pin (B) { direction : input; }
+    pin (Y) { direction : output; function : "A & B"; }
+  }
+
+  cell (XOR2_X1) {
+    area : 1.000;
+    pin (A) { direction : input; }
+    pin (B) { direction : input; }
+    pin (Y) { direction : output; function : "A ^ B"; }
+  }
+
+  cell (MUX2_X1) {
+    area : 1.100;
+    pin (A) { direction : input; }
+    pin (B) { direction : input; }
+    pin (S) { direction : input; }
+    pin (Y) { direction : output; function : "S ? B : A"; }
+  }
+
+  cell (AOI21_X1) {
+    area : 1.000;
+    pin (A1) { direction : input; }
+    pin (A2) { direction : input; }
+    pin (B1) { direction : input; }
+    pin (Y) { direction : output; function : "!(A1 & A2 | B1)"; }
+  }
+}

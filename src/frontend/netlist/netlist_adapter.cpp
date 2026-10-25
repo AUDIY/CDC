@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "cell/liberty.h"
 #include "clock/resolve.h"
 #include "frontend/netlist/netlist_parser.h"
 #include "frontend/netlist/regroup.h"
@@ -485,6 +486,8 @@ void GraphBuilder::process_comb(const Instance& inst, const cell::CellDef* def, 
         lt = LogicType::Buf;
     else if (kind == cell::CellKind::Inverter)
         lt = LogicType::Not;
+    else if (def && def->logic_type_hint >= 0)
+        lt = static_cast<LogicType>(def->logic_type_hint);  // Liberty function
     else if (def && !def->pattern.empty()) {
         // Best-effort logic type from the pattern name for Comb cells.
         // Order matters: XOR/XNOR must be tested before AND/NOR/OR because
@@ -621,8 +624,21 @@ FrontendResult NetlistAdapter::elaborate(const std::vector<std::string>& files,
     if (!parsed.ok)
         return result;
 
-    // Cell library: defaults + optional YAML overlay.
+    // Cell library: defaults + optional Liberty import + optional YAML map.
+    // Precedence (lowest → highest): heuristic defaults, Liberty cell
+    // definitions (exact names, so they beat the short default globs), and
+    // the YAML cell map last (user's explicit overrides win ties).
     library_ = cell::CellLibrary::with_defaults();
+    if (!options.liberty_path.empty()) {
+        cell::CellLibrary liberty_defs;
+        std::string lib_err;
+        if (!cell::load_liberty_file(options.liberty_path, liberty_defs, &lib_err)) {
+            result.errors.push_back(lib_err);
+            return result;
+        }
+        for (const auto& d : liberty_defs.defs())
+            library_.add(d);
+    }
     if (!options.cell_map_path.empty()) {
         cell::CellLibrary overlay;
         std::string cell_err;

@@ -33,6 +33,8 @@ struct CheckOptions {
     bool input_type_explicit = false;
     // YAML cell map for the netlist frontend.
     std::string cell_map_path;
+    // Liberty (.lib) file for the netlist frontend.
+    std::string liberty_path;
     // Graph safety limit overrides (0 = frontend defaults).
     size_t max_nodes = 0;
     size_t max_edges = 0;

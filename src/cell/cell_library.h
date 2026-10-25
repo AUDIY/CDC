@@ -38,6 +38,11 @@ struct CellDef {
     // Reset electrical properties (only meaningful for DffReset/DffSetReset).
     bool reset_active_low = false;
     bool reset_async = false;
+    // Optional explicit logic type for Comb cells, stored as the integer
+    // value of ir::LogicType (-1 = unset) to keep this layer IR-free. Set by
+    // Liberty import from the output pin's `function` expression; the
+    // netlist adapter prefers it over the pattern-name heuristic.
+    int logic_type_hint = -1;
 };
 
 // Glob matcher supporting '*' (any run) and '?' (single char). Case-sensitive,

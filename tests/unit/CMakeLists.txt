@@ -2,6 +2,7 @@ add_executable(opencdc_unit_tests
     cli_test.cpp
     graph_test.cpp
     cell_library_test.cpp
+    liberty_test.cpp
     netlist_parser_test.cpp
     netlist_frontend_test.cpp
     ir_compact_test.cpp

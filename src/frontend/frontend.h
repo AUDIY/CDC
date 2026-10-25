@@ -28,6 +28,9 @@ struct FrontendOptions {
     bool allow_user_annotation = true;
     // YAML cell map path for the netlist frontend (ignored by RTL).
     std::string cell_map_path;
+    // Liberty (.lib) file path for the netlist frontend: cell definitions
+    // are imported before the YAML cell map, so explicit map entries win.
+    std::string liberty_path;
     // 0 = built-in defaults (RTL: ir::MAX_GRAPH_*; netlist: kNetlist* below).
     size_t max_nodes = 0;
     size_t max_edges = 0;

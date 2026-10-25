@@ -251,10 +251,15 @@ Done (PR8):
   re-recognized and re-annotated (`annotate_gray_registers`), restoring
   CDC002 gray verdict parity.
 
+Done (PR9):
+- Liberty (`.lib`) import (`src/cell/liberty.{h,cpp}`, `--liberty` +
+  `input.liberty`): cell/pin/ff/latch classification subset → `CellDef`s
+  with logic-type hints from output `function` expressions; precedence
+  defaults < liberty < YAML cell map.
+
 Remaining:
 - Multi-module/hierarchical netlist elaboration (module defs + instance
   expansion with prefixing).
-- Liberty (`.lib`) import → generate `CellDef`s automatically.
 - `--name-map` RTL→netlist register mapping so RTL-authored waivers apply to
   netlist runs (high signoff value).
 - Low-power cells (isolation/retention) as safe-crossing blackboxes.

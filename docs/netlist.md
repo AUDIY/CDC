@@ -281,9 +281,35 @@ Measured on a synthetic 600k-cell Yosys-style netlist (~55 MB), single thread:
 See [`docs/dev/NETLIST_PLAN.md`](dev/NETLIST_PLAN.md) for the full plan and
 measurements.
 
+## Cell classification
+
+Cells are classified by a `CellLibrary` resolved at load time. Precedence,
+lowest to highest:
+
+1. **Heuristic defaults** (`CellLibrary::with_defaults()`): Yosys `$_DFF_*`
+   primitives plus common name globs (`DFF*`, `SDFF*`, `CLKGATE*`, ...).
+2. **Liberty (`.lib`) import** (`--liberty <file>` or `input.liberty` in the
+   config): the classification subset of a Synopsys Liberty library —
+   `cell`/`pin`/`ff`/`latch` groups with `direction`, `clock`, `function`,
+   `clocked_on`, `next_state`, `clear`, `preset`, `enable`, `data_in`
+   attributes. `ff` groups map to Dff/DffReset/DffSetReset (leading `!`/`~`
+   in the clear/preset expression means active-low; Liberty clear/preset is
+   asynchronous by definition), `latch` groups to Latch, and output-pin
+   `function` expressions to a logic-type hint (`&`, `|`, `^`, `?:`, `!` —
+   mixed/complex expressions leave the hint unset so the pattern-name
+   heuristic applies). Timing/leakage groups and vendor attributes are
+   skipped. Definitions use exact cell names, so they beat the short default
+   globs via longest-match.
+3. **YAML cell map** (`--cell-map <file>` or `input.cell_map`): the user's
+   explicit overrides, loaded last (longer patterns shadow everything).
+
+```bash
+opencdc check netlist.v --top top --input-type netlist \
+  --liberty pdk/NangateOpenCellLibrary.lib --cell-map my_overrides.yaml
+```
+
 ## Known limitations
 
-- **Liberty (`.lib`) import** is not implemented; use a YAML cell map.
 - **RTL→netlist name mapping** for applying RTL-authored waivers to netlist
   runs is deferred; use regex/wildcard waivers in the interim.
 - **Multi-module hierarchical netlists** are parsed as a single top module;

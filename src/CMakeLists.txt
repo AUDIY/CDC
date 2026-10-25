@@ -4,6 +4,7 @@ set(OPENCDC_CORE_SOURCES
     ir/compact.cpp
     ir/module_tree.cpp
     cell/cell_library.cpp
+    cell/liberty.cpp
     frontend/frontend.cpp
     frontend/slang_adapter.cpp
     frontend/netlist/netlist_lexer.cpp

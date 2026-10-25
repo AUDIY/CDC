@@ -13,6 +13,8 @@ compile_commands.json
 *.obj
 *.a
 *.lib
+# Test-fixture Liberty cell libraries are source, not build artifacts.
+!tests/fixtures/**/*.lib
 *.so
 *.dylib
 

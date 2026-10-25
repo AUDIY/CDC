@@ -103,6 +103,17 @@ bool parse_cell_kind(const std::string& value, CellKind& out, std::string* error
     return false;
 }
 
+namespace {
+// Aggregate helper: keeps the default entries readable without partial
+// brace-initializers (which warn with -Wmissing-field-initializers).
+CellDef mk(const char* pattern, CellKind kind) {
+    CellDef d;
+    d.pattern = pattern;
+    d.kind = kind;
+    return d;
+}
+}  // namespace
+
 CellLibrary CellLibrary::with_defaults() {
     CellLibrary lib;
     // Generic, vendor-agnostic heuristics. These are intentionally broad and
@@ -111,33 +122,33 @@ CellLibrary CellLibrary::with_defaults() {
     // adapter infers them from common names (CK/CLK/C, D/DI, Q, ...).
     //
     // Order is irrelevant — lookup picks the longest matching pattern.
-    lib.add({"DFF*", CellKind::Dff});
-    lib.add({"DFXP*", CellKind::Dff});
-    lib.add({"SDFF*", CellKind::Dff});
-    lib.add({"DF*N*", CellKind::DffReset});   // DFCN*, DFCNQ*, DFDN* → reset
-    lib.add({"DF*P*", CellKind::DffReset});   // preset variants
-    lib.add({"DFF*EN*", CellKind::DffEnable});
-    lib.add({"SDFF*EN*", CellKind::DffEnable});
-    lib.add({"DLATCH*", CellKind::Latch});
-    lib.add({"LAT*", CellKind::Latch});
-    lib.add({"CLKGATE*", CellKind::Icg});
-    lib.add({"ICG*", CellKind::Icg});
-    lib.add({"CKGATE*", CellKind::Icg});
-    lib.add({"BUFX*", CellKind::Buffer});
-    lib.add({"BUF*", CellKind::Buffer});
-    lib.add({"CLKBUF*", CellKind::Buffer});
-    lib.add({"INVD*", CellKind::Inverter});
-    lib.add({"INV*", CellKind::Inverter});
-    lib.add({"NOT*", CellKind::Inverter});
-    lib.add({"AND*", CellKind::Comb});
-    lib.add({"NAND*", CellKind::Comb});
-    lib.add({"OR*", CellKind::Comb});
-    lib.add({"NOR*", CellKind::Comb});
-    lib.add({"XOR*", CellKind::Comb});
-    lib.add({"XNOR*", CellKind::Comb});
-    lib.add({"MUX*", CellKind::Comb});
-    lib.add({"AOI*", CellKind::Comb});
-    lib.add({"OAI*", CellKind::Comb});
+    lib.add(mk("DFF*", CellKind::Dff));
+    lib.add(mk("DFXP*", CellKind::Dff));
+    lib.add(mk("SDFF*", CellKind::Dff));
+    lib.add(mk("DF*N*", CellKind::DffReset));   // DFCN*, DFCNQ*, DFDN* → reset
+    lib.add(mk("DF*P*", CellKind::DffReset));   // preset variants
+    lib.add(mk("DFF*EN*", CellKind::DffEnable));
+    lib.add(mk("SDFF*EN*", CellKind::DffEnable));
+    lib.add(mk("DLATCH*", CellKind::Latch));
+    lib.add(mk("LAT*", CellKind::Latch));
+    lib.add(mk("CLKGATE*", CellKind::Icg));
+    lib.add(mk("ICG*", CellKind::Icg));
+    lib.add(mk("CKGATE*", CellKind::Icg));
+    lib.add(mk("BUFX*", CellKind::Buffer));
+    lib.add(mk("BUF*", CellKind::Buffer));
+    lib.add(mk("CLKBUF*", CellKind::Buffer));
+    lib.add(mk("INVD*", CellKind::Inverter));
+    lib.add(mk("INV*", CellKind::Inverter));
+    lib.add(mk("NOT*", CellKind::Inverter));
+    lib.add(mk("AND*", CellKind::Comb));
+    lib.add(mk("NAND*", CellKind::Comb));
+    lib.add(mk("OR*", CellKind::Comb));
+    lib.add(mk("NOR*", CellKind::Comb));
+    lib.add(mk("XOR*", CellKind::Comb));
+    lib.add(mk("XNOR*", CellKind::Comb));
+    lib.add(mk("MUX*", CellKind::Comb));
+    lib.add(mk("AOI*", CellKind::Comb));
+    lib.add(mk("OAI*", CellKind::Comb));
 
     // Yosys generic gate-level cells (output of `write_verilog` after
     // `synth`/`abc -g`). Recognized so post-yosys netlists classify without a
@@ -145,25 +156,25 @@ CellLibrary CellLibrary::with_defaults() {
     // generic entry records the reset net but assumes active-high polarity; a
     // custom cell map with per-pattern reset_active_low refines polarity for
     // signoff (it does not affect crossing/domain detection).
-    lib.add({"$_DFF_*", CellKind::Dff});
-    lib.add({"$_SDFF_*", CellKind::Dff});
-    lib.add({"$_DFFE_*", CellKind::DffEnable});
-    lib.add({"$_DFF_P?0_", CellKind::DffReset});
-    lib.add({"$_DFF_P?1_", CellKind::DffReset});
-    lib.add({"$_DFF_N?0_", CellKind::DffReset});
-    lib.add({"$_DFF_N?1_", CellKind::DffReset});
-    lib.add({"$_DLATCH_*", CellKind::Latch});
-    lib.add({"$_AND_*", CellKind::Comb});
-    lib.add({"$_NAND_*", CellKind::Comb});
-    lib.add({"$_OR_*", CellKind::Comb});
-    lib.add({"$_NOR_*", CellKind::Comb});
-    lib.add({"$_XOR_*", CellKind::Comb});
-    lib.add({"$_XNOR_*", CellKind::Comb});
-    lib.add({"$_MUX_*", CellKind::Comb});
-    lib.add({"$_AOI*", CellKind::Comb});
-    lib.add({"$_OAI*", CellKind::Comb});
-    lib.add({"$_NOT_*", CellKind::Inverter});
-    lib.add({"$_BUF_*", CellKind::Buffer});
+    lib.add(mk("$_DFF_*", CellKind::Dff));
+    lib.add(mk("$_SDFF_*", CellKind::Dff));
+    lib.add(mk("$_DFFE_*", CellKind::DffEnable));
+    lib.add(mk("$_DFF_P?0_", CellKind::DffReset));
+    lib.add(mk("$_DFF_P?1_", CellKind::DffReset));
+    lib.add(mk("$_DFF_N?0_", CellKind::DffReset));
+    lib.add(mk("$_DFF_N?1_", CellKind::DffReset));
+    lib.add(mk("$_DLATCH_*", CellKind::Latch));
+    lib.add(mk("$_AND_*", CellKind::Comb));
+    lib.add(mk("$_NAND_*", CellKind::Comb));
+    lib.add(mk("$_OR_*", CellKind::Comb));
+    lib.add(mk("$_NOR_*", CellKind::Comb));
+    lib.add(mk("$_XOR_*", CellKind::Comb));
+    lib.add(mk("$_XNOR_*", CellKind::Comb));
+    lib.add(mk("$_MUX_*", CellKind::Comb));
+    lib.add(mk("$_AOI*", CellKind::Comb));
+    lib.add(mk("$_OAI*", CellKind::Comb));
+    lib.add(mk("$_NOT_*", CellKind::Inverter));
+    lib.add(mk("$_BUF_*", CellKind::Buffer));
     return lib;
 }
 
