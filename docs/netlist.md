@@ -130,7 +130,12 @@ The netlist frontend maps instances and nets onto the shared IR:
 
 Clocks are resolved with the **same `ClockResolver` pass the RTL frontend
 uses**, so root-clock, gated-clock, and muxed-clock detection behave
-identically.
+identically. For muxed clocks the representative root is the mux's
+**default-path (select = 0) input**, stored in the shared IR operand order
+`[select, true, false]`: the RTL frontend emits that order for a ternary
+`cond ? t : f`, and the netlist frontend maps standard-cell pin roles
+(`$_MUX_`: A/B/S; library: D0/D1, I0/I1, S) into it — so RTL and netlist
+resolve the same muxed clock to the same root.
 
 ### Rules that work on netlists
 

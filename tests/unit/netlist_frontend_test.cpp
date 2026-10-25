@@ -228,6 +228,27 @@ TEST(NetlistFrontendTest, XorCellClassifiesAsXorNotOr) {
     EXPECT_EQ(hn->logic_type, ir::LogicType::And);
 }
 
+TEST(NetlistFrontendTest, MuxedClockResolvesToDefaultPathRoot) {
+    // `$_MUX_ m0 (.A(clk_b), .B(clk_a), .S(clk_sel), .Y(selected_clk))` —
+    // the muxed clock's representative root must be the default-path
+    // (select = 0) input A = clk_b, matching the RTL frontend's resolution
+    // of `sel ? clk_a : clk_b`. Before mux input normalization the resolver
+    // picked the LAST connection (the select pin), yielding a bogus
+    // (clk_a -> clk_sel) domain pair instead of (clk_a -> clk_b).
+    AnalysisRequest req;
+    req.input_files = {fx("mux_clock.v")};
+    req.top_module = "mux_clock";
+    req.input_type = InputType::Netlist;
+    Analyzer analyzer;
+    auto result = analyzer.run(req);
+    ASSERT_TRUE(result.ok) << (result.errors.empty() ? "" : result.errors.front());
+
+    const cdc::Finding* f = find_rule(result.findings, "CDC001");
+    ASSERT_NE(f, nullptr);
+    EXPECT_EQ(f->source_domain, "clk_a");
+    EXPECT_EQ(f->dest_domain, "clk_b");
+}
+
 TEST(NetlistFrontendTest, UnknownCellTreatedAsOpaqueNotSafe) {
     // A cell type absent from the library must be classified Unknown (opaque
     // combinational) and produce a warning — never silently assumed safe.

@@ -501,13 +501,48 @@ void GraphBuilder::process_comb(const Instance& inst, const cell::CellDef* def, 
     }
 
     std::vector<uint64_t> inputs;
+    // Named inputs (pin -> node) kept for mux role normalization below.
+    std::vector<std::pair<std::string, uint64_t>> named_inputs;
     for (const auto& c : inst.conns) {
         if (out && &c == out)
             continue;  // skip output pin
         if (c.net.kind == NetRef::Kind::Net) {
             uint64_t n = get_node(c.net);
-            if (n)
+            if (n) {
                 inputs.push_back(n);
+                named_inputs.emplace_back(c.pin, n);
+            }
+        }
+    }
+
+    if (lt == LogicType::Mux) {
+        // Normalize mux inputs to the shared IR operand convention
+        // [select, true, false]: the RTL frontend stores a ternary
+        // `cond ? t : f` in exactly that order, and ClockResolver treats the
+        // LAST input of a mux as its representative (default-path, select=0)
+        // root clock. Standard-cell pin roles (yosys `$_MUX_`: Y = S ? B : A;
+        // library muxes: D1/I1 = select-1 input, D0/I0 = select-0 input) are
+        // mapped into that order so RTL and netlist resolve muxed clocks to
+        // the same root. Unrecognized pin names keep connection order.
+        size_t sel = named_inputs.size(), t = named_inputs.size(),
+               f = named_inputs.size();
+        for (size_t i = 0; i < named_inputs.size(); ++i) {
+            const std::string& pin = named_inputs[i].first;
+            if (sel == named_inputs.size() &&
+                (pin == "S" || pin == "SEL" || pin == "SELECT")) {
+                sel = i;
+            } else if (f == named_inputs.size() &&
+                       (pin == "A" || pin == "D0" || pin == "I0")) {
+                f = i;  // select-0 input
+            } else if (t == named_inputs.size() &&
+                       (pin == "B" || pin == "D1" || pin == "I1")) {
+                t = i;  // select-1 input
+            }
+        }
+        if (sel < named_inputs.size() && t < named_inputs.size() &&
+            f < named_inputs.size()) {
+            inputs = {named_inputs[sel].second, named_inputs[t].second,
+                      named_inputs[f].second};
         }
     }
 
