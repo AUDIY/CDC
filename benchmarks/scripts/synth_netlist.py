@@ -49,13 +49,28 @@ write_verilog -noattr -noexpr {out}
 
 def synthesize(rtl, top, out, yosys="yosys"):
     script = YOSYS_SCRIPT.format(rtl=rtl, top=top, out=out)
-    proc = subprocess.run(
-        [yosys, "-q", "-p", script], capture_output=True, text=True
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"yosys failed for {rtl}:\n{proc.stdout}\n{proc.stderr}"
+    # Pass the script as a FILE (-s), not as a -p option string: some yosys
+    # builds parse -p with cxxopts, whose vector<string> values are
+    # comma-split — the 'abc -g AND,OR,...' line would be cut into separate
+    # commands and yosys would abort with "No such command: OR". Script
+    # files go through yosys's own reader, where commas are ordinary
+    # argument text, so the script works across yosys builds.
+    fd, script_path = tempfile.mkstemp(suffix=".ys", text=True)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(script)
+        proc = subprocess.run(
+            [yosys, "-q", "-s", script_path], capture_output=True, text=True
         )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"yosys failed for {rtl}:\n{proc.stdout}\n{proc.stderr}"
+            )
+    finally:
+        try:
+            os.unlink(script_path)
+        except OSError:
+            pass
     if not os.path.exists(out):
         raise RuntimeError(f"yosys produced no output netlist: {out}")
 
