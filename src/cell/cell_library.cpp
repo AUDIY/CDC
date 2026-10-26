@@ -53,6 +53,10 @@ const char* cell_kind_name(CellKind kind) {
             return "inverter";
         case CellKind::Comb:
             return "comb";
+        case CellKind::Isolation:
+            return "isolation";
+        case CellKind::Retention:
+            return "retention";
         case CellKind::Unknown:
             return "unknown";
     }
@@ -96,10 +100,18 @@ bool parse_cell_kind(const std::string& value, CellKind& out, std::string* error
         out = CellKind::Comb;
         return true;
     }
+    if (value == "isolation") {
+        out = CellKind::Isolation;
+        return true;
+    }
+    if (value == "retention") {
+        out = CellKind::Retention;
+        return true;
+    }
     if (error)
         *error = "unknown cell kind '" + value +
                  "' (expected dff, dff_reset, dff_enable, dff_set_reset, latch, icg, buffer, "
-                 "inverter, comb)";
+                 "inverter, comb, isolation, retention)";
     return false;
 }
 
@@ -149,6 +161,17 @@ CellLibrary CellLibrary::with_defaults() {
     lib.add(mk("MUX*", CellKind::Comb));
     lib.add(mk("AOI*", CellKind::Comb));
     lib.add(mk("OAI*", CellKind::Comb));
+
+    // Low-power cells. Isolation clamps are transparent combinational
+    // (Buffer-equivalent); retention (save/restore) flops are real sequential
+    // elements (Dff-equivalent — scan/save ports are ignored). Recognizing
+    // them keeps them out of Unknown, which would model retention flops as
+    // opaque combinational and hide the crossings they participate in.
+    // "ISO"/"RSDFF" substrings are distinctive enough not to collide with
+    // functional cell names, and no yosys primitive matches them.
+    lib.add(mk("*ISO*", CellKind::Isolation));
+    lib.add(mk("*RSDFF*", CellKind::Retention));
+    lib.add(mk("*RETENTION*", CellKind::Retention));
 
     // Yosys generic gate-level cells (output of `write_verilog` after
     // `synth`/`abc -g`). Recognized so post-yosys netlists classify without a

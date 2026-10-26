@@ -143,5 +143,51 @@ TEST(LibertyTest, TopLevelCellWithoutLibraryWrapper) {
     EXPECT_EQ(lib.lookup("AND2_X1")->logic_type_hint, 1);
 }
 
+TEST(LibertyTest, LowPowerCells) {
+    // Power-aware annotation wins over the functional classification, and
+    // retention (save/restore) flops classify by name (glob heuristics
+    // mirroring CellLibrary::with_defaults()).
+    CellLibrary lib;
+    std::string err;
+    const char* src =
+        "library (lp) {\n"
+        "  cell (ISO_X1) {\n"
+        "    is_isolation_cell : true;\n"
+        "    pin (A) { direction : input; }\n"
+        "    pin (SE) { direction : input; }\n"
+        "    pin (Z) { direction : output; }\n"
+        "  }\n"
+        "  cell (CLAMPBUF) {\n"
+        "    is_isolation_cell : true;\n"
+        "    pin (A) { direction : input; }\n"
+        "    pin (Z) { direction : output; }\n"
+        "  }\n"
+        "  cell (RSDFFQ_X1) {\n"
+        "    ff (IQ, IQN) { next_state : \"D\"; clocked_on : \"CK\"; }\n"
+        "    pin (CK) { direction : input; clock : true; }\n"
+        "    pin (D) { direction : input; }\n"
+        "    pin (SI) { direction : input; }\n"
+        "    pin (SE) { direction : input; }\n"
+        "    pin (Q) { direction : output; }\n"
+        "  }\n"
+        "}\n";
+    ASSERT_TRUE(load_liberty_string(src, lib, &err)) << err;
+
+    // Even without "ISO" in the name, the explicit annotation classifies.
+    const CellDef* clamp = lib.lookup("CLAMPBUF");
+    ASSERT_NE(clamp, nullptr);
+    EXPECT_EQ(clamp->kind, CellKind::Isolation);
+    EXPECT_EQ(clamp->output_pin, "Z");
+
+    // Retention flop: sequential like a plain Dff; scan/save ports are
+    // ignored by the adapter (only CK/D/Q bind).
+    const CellDef* ret = lib.lookup("RSDFFQ_X1");
+    ASSERT_NE(ret, nullptr);
+    EXPECT_EQ(ret->kind, CellKind::Retention);
+    EXPECT_EQ(ret->clock_pin, "CK");
+    EXPECT_EQ(ret->data_pin, "D");
+    EXPECT_EQ(ret->output_pin, "Q");
+}
+
 }  // namespace
 }  // namespace opencdc::cell

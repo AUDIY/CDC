@@ -297,6 +297,34 @@ AnalysisResult Analyzer::run_on_graph(ir::Graph graph, const AnalysisRequest& re
         findings.push_back(std::move(f));
     }
 
+    // 11b. Low-power isolation cells: CDC001 whose path crosses a node
+    // flagged by the netlist frontend as an isolation cell is downgraded to
+    // info/VerifiedSafe with provenance — the cell is a methodology-managed
+    // power-domain boundary (UPF is out of scope), NOT a synchronizer. Only
+    // CDC001 is affected: CDC002/004/005/007 are independent of synchronizer
+    // presence and stay fully evaluated on the same crossing. No input-type
+    // gate is needed here: is_isolation_cell is set exclusively by the
+    // netlist frontend (regroup preserves it), so RTL graphs never match and
+    // RTL runs are structurally unaffected. Note: result.input_type is only
+    // assigned by run() after run_on_graph returns, so it cannot gate this.
+    for (auto& f : findings) {
+        if (f.rule_id != "CDC001" || f.severity != "error")
+            continue;
+        for (uint64_t nid : f.path.node_ids) {
+            const ir::Node* n = result.graph.find_node(nid);
+            if (n && n->is_isolation_cell) {
+                f.severity = "info";
+                f.safety_status = cdc::SafetyStatus::VerifiedSafe;
+                f.safety_provenance = "Path through low-power isolation cell";
+                f.reason =
+                    "CDC001 downgraded: path passes through a low-power isolation cell "
+                    "(methodology-managed power-domain boundary, not a synchronizer; "
+                    "CDC002/004/005/007 remain evaluated).";
+                break;
+            }
+        }
+    }
+
     // 12. Rule enable/severity filtering.
     findings = rule_engine.filter(findings);
 

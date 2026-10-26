@@ -76,7 +76,7 @@ cells:
 | Key | Required | Meaning |
 |-----|----------|---------|
 | `pattern` | yes | Glob matched against the cell type name. **Longest match wins**, so a specific entry shadows a broad default (or another map entry). |
-| `kind` | yes | One of `dff`, `dff_reset`, `dff_enable`, `dff_set_reset`, `latch`, `icg`, `buffer`, `inverter`, `comb`. |
+| `kind` | yes | One of `dff`, `dff_reset`, `dff_enable`, `dff_set_reset`, `latch`, `icg`, `buffer`, `inverter`, `comb`, `isolation`, `retention`. |
 | `clock`, `data`, `output`, `enable`, `reset`, `set` | no | Explicit pin names for each role. When omitted, pins are inferred from common names (`CK`/`CLK`/`C`, `D`/`DI`, `Q`, `E`/`EN`/`CE`, `R`/`RST`/`CDN`/`CLR`, ...). |
 | `reset_active_low` | no | Reset polarity (`true` = active-low). Default `false`. |
 | `reset_async` | no | `true` if the reset is asynchronous. Default `false`. |
@@ -96,6 +96,10 @@ netlists work with no cell map at all:
 - Yosys generic gate-level cells (`$_DFF_*`, `$_DFFE_*`, `$_DFF_P?0_`,
   `$_AND_*`, `$_MUX_*`, `$_NOT_*`, `$_BUF_*`, ...) so post-Yosys output
   classifies out of the box.
+- Low-power cells: `*ISO*` → isolation clamps (transparent combinational),
+  `*RSDFF*`, `*RETENTION*` → retention (save/restore) flops (sequential,
+  modeled like plain flops — scan/save ports are ignored). See
+  [Low-power cells](#low-power-cells) below.
 
 Because lookup is longest-match-wins, a cell map can refine any default without
 duplicating it.
@@ -309,9 +313,12 @@ lowest to highest:
    asynchronous by definition), `latch` groups to Latch, and output-pin
    `function` expressions to a logic-type hint (`&`, `|`, `^`, `?:`, `!` —
    mixed/complex expressions leave the hint unset so the pattern-name
-   heuristic applies). Timing/leakage groups and vendor attributes are
-   skipped. Definitions use exact cell names, so they beat the short default
-   globs via longest-match.
+   heuristic applies). Power-aware annotations are honored: a cell-level
+   `is_isolation_cell : true;` classifies it as `isolation`, and `ff` cells
+   whose names match the retention heuristics (`*RSDFF*`, `*RETENTION*`)
+   classify as `retention`. Timing/leakage groups and other vendor attributes
+   are skipped. Definitions use exact cell names, so they beat the short
+   default globs via longest-match.
 3. **YAML cell map** (`--cell-map <file>` or `input.cell_map`): the user's
    explicit overrides, loaded last (longer patterns shadow everything).
 
@@ -319,6 +326,31 @@ lowest to highest:
 opencdc check netlist.v --top top --input-type netlist \
   --liberty pdk/NangateOpenCellLibrary.lib --cell-map my_overrides.yaml
 ```
+
+### Low-power cells
+
+Power-managed netlists contain cells that have no functional RTL counterpart;
+they are classified explicitly so they never fall into `Unknown`:
+
+- **Isolation cells** (`*ISO*` by default, or `is_isolation_cell : true;` in
+  Liberty, or `kind: isolation` in the cell map) are transparent
+  combinational clamps — modeled like `buffer`. Crucially, the CDC001
+  finding on a crossing whose path crosses an isolation cell is **downgraded
+  to `info` with `safety_status: verified_safe` and the provenance "Path
+  through low-power isolation cell"**: power-domain boundaries are
+  methodology-managed (UPF is out of scope). This is a *downgrade, not a
+  suppression* — an isolation cell is not a synchronizer, and the
+  synchronization-independent rules (**CDC002**, **CDC004**, **CDC005**,
+  **CDC007**) stay fully evaluated on the same crossing. Methodologies that
+  want the crossing reported in full can waive the finding or keep it
+  through the `blackboxes` config section for specific cell types.
+- **Retention (save/restore) flops** (`*RSDFF*`, `*RETENTION*` by default,
+  or `kind: retention` in the cell map) are the design's *real* sequential
+  elements — modeling them as unknown combinational would hide the crossings
+  they participate in entirely. They are modeled like plain flops: only
+  `CK`/`C`, `D`, `Q` (and reset/set when present) bind; scan/save ports
+  (`SI`, `SE`, ...) are ignored. A retention+reset variant keeps its reset
+  annotation from the Liberty `ff` group.
 
 ## Register name mapping (`--name-map`)
 
@@ -347,6 +379,10 @@ clock waivers keyed on RTL clock names should still use regex/wildcards.
 
 ## Known limitations
 
+- **UPF/CPF power intent is not parsed**: low-power cells are classified from
+  name heuristics, Liberty `is_isolation_cell` annotations, or the cell map —
+  not from the design's power intent. The CDC001 downgrade at isolation cells
+  is a documented methodology default, not an UPF-derived verdict.
 - **Gray recovery is structural**: it recognizes the canonical adjacent-bit
   XOR shape only; gray styles that synthesize differently (e.g. LFSR-style)
   are not recognized and report CDC002 as an ordinary multi-bit crossing.

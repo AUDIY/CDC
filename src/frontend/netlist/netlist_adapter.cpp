@@ -360,11 +360,13 @@ void GraphBuilder::process_instance(const Instance& inst, std::vector<std::strin
         case cell::CellKind::DffEnable:
         case cell::CellKind::DffSetReset:
         case cell::CellKind::Latch:
+        case cell::CellKind::Retention:  // save/restore flop: sequential like Dff
             process_sequential(inst, def, kind, warnings);
             return;
         case cell::CellKind::Icg:
             process_icg(inst, def, warnings);
             return;
+        case cell::CellKind::Isolation:  // transparent clamp: combinational like Buffer
         default:
             process_comb(inst, def, kind, warnings);
             return;
@@ -557,6 +559,10 @@ void GraphBuilder::process_comb(const Instance& inst, const cell::CellDef* def, 
         uint64_t on = get_node(out->net);
         if (on)
             graph_.add_edge(comb, on, EdgeRole::Data);
+    }
+    if (comb && kind == cell::CellKind::Isolation) {
+        if (ir::Node* n = graph_.find_node_mutable(comb))
+            n->is_isolation_cell = true;
     }
 }
 

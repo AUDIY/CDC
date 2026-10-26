@@ -73,6 +73,12 @@ struct Node {
 
     // Level-sensitive latch (set by the netlist frontend; RTL never sets it).
     bool is_latch = false;
+
+    // Low-power isolation cell (set by the netlist frontend; RTL never sets
+    // it). CDC001 crossings whose path crosses such a node are downgraded to
+    // info/VerifiedSafe by the analyzer: the cell is a methodology-managed
+    // power-domain boundary (UPF out of scope), not a synchronizer.
+    bool is_isolation_cell = false;
 };
 
 enum class EdgeRole : uint8_t { Data, Control, Clock, Reset };

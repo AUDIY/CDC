@@ -69,6 +69,8 @@ std::string group_key(const Node& n, const std::string& base) {
         (n.reset_pol == ir::ResetPolarity::ActiveLow ? 'l' : 'h') +
         (n.is_async_reset ? 0x10 : 0) + (n.is_latch ? 0x40 : 0)));
     k.push_back('\x1f');
+    k.push_back(n.is_isolation_cell ? 'i' : '-');
+    k.push_back('\x1f');
     k += n.module_path;
     return k;
 }
@@ -172,6 +174,7 @@ MergeCandidate* apply_group(ir::Graph& graph, MergeCandidate& mc,
             merged->reset_pol = m->reset_pol;
             merged->is_async_reset = m->is_async_reset;
             merged->is_latch = m->is_latch;
+            merged->is_isolation_cell = m->is_isolation_cell;
             have_first = true;
         }
         merged->is_gray_coded = merged->is_gray_coded || m->is_gray_coded;

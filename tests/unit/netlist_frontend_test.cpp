@@ -56,6 +56,41 @@ TEST(NetlistFrontendTest, UnsyncCrossingReportsCdc001Error) {
     EXPECT_EQ(f->dest_domain, "clk_b");
 }
 
+TEST(NetlistFrontendTest, LowPowerIsolationDowngradesCdc001Only) {
+    AnalysisRequest req;
+    req.input_files = {fx("low_power.v")};
+    req.top_module = "low_power";
+    req.input_type = InputType::Netlist;
+    Analyzer analyzer;
+    auto result = analyzer.run(req);
+    ASSERT_TRUE(result.ok) << (result.errors.empty() ? "" : result.errors.front());
+
+    // Retention flops are real registers: the crossing exists at all, and
+    // the bit flops regroup into a width-2 bus (CDC002 bus_width below).
+    // Modeling them as Unknown (opaque combinational) would hide it.
+    const cdc::Finding* f = find_rule(result.findings, "CDC001");
+    ASSERT_NE(f, nullptr);
+    EXPECT_EQ(f->source_reg_name, "src_reg");
+    EXPECT_EQ(f->dest_reg_name, "dst_reg");
+    // CDC001 alone is downgraded: the path crosses a low-power isolation
+    // cell (methodology-managed power-domain boundary, not a synchronizer).
+    EXPECT_EQ(f->severity, "info");
+    EXPECT_EQ(f->safety_status, cdc::SafetyStatus::VerifiedSafe);
+    EXPECT_NE(f->safety_provenance.find("isolation"), std::string::npos);
+
+    // Multi-bit rules are independent of synchronization and stay errors.
+    const cdc::Finding* mb = find_rule(result.findings, "CDC002");
+    ASSERT_NE(mb, nullptr);
+    EXPECT_EQ(mb->severity, "error");
+    EXPECT_EQ(mb->bus_width, 2u);
+    EXPECT_EQ(mb->dest_reg_name, "dst_reg");
+
+    // Both low-power cell types are recognized: no unmapped-cell warning.
+    for (const auto& w : result.warnings) {
+        EXPECT_EQ(w.find("unmapped"), std::string::npos) << w;
+    }
+}
+
 TEST(NetlistFrontendTest, TwoFfsyncIsStructurallySafe) {
     AnalysisRequest req;
     req.input_files = {fx("sync_2ff.v")};

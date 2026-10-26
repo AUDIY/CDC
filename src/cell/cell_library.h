@@ -18,6 +18,9 @@ enum class CellKind {
     Buffer,     // non-inverting buffer
     Inverter,   // inverter
     Comb,       // generic combinational cell (and/or/xor/mux/...)
+    Isolation,  // low-power isolation cell: combinational, transparent like Buffer
+    Retention,  // retention (save/restore) flop: sequential like a plain Dff
+                // (scan/save ports SI/SE/... are ignored by the adapter)
     Unknown     // unmapped: treated as opaque combinational, never "safe"
 };
 

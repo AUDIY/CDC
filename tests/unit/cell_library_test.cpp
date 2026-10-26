@@ -25,7 +25,8 @@ TEST(CellLibraryTest, GlobMatchBasics) {
 TEST(CellLibraryTest, KindNamesRoundTrip) {
     CellKind kinds[] = {CellKind::Dff,       CellKind::DffReset, CellKind::DffEnable,
                         CellKind::DffSetReset, CellKind::Latch,   CellKind::Icg,
-                        CellKind::Buffer,    CellKind::Inverter,  CellKind::Comb};
+                        CellKind::Buffer,    CellKind::Inverter,  CellKind::Comb,
+                        CellKind::Isolation, CellKind::Retention};
     for (CellKind k : kinds) {
         CellKind parsed;
         ASSERT_TRUE(parse_cell_kind(cell_kind_name(k), parsed)) << cell_kind_name(k);
@@ -47,6 +48,23 @@ TEST(CellLibraryTest, DefaultsClassify) {
     EXPECT_EQ(lib.classify("AND2_X1"), CellKind::Comb);
     EXPECT_EQ(lib.classify("UNKNOWN_CELL"), CellKind::Unknown);
     EXPECT_EQ(lib.classify("random_ip_block"), CellKind::Unknown);
+}
+
+TEST(CellLibraryTest, DefaultsClassifyLowPowerCells) {
+    CellLibrary lib = CellLibrary::with_defaults();
+    // Isolation clamps: transparent combinational (Buffer-equivalent).
+    EXPECT_EQ(lib.classify("ISO_X1"), CellKind::Isolation);
+    EXPECT_EQ(lib.classify("ENISO_X2"), CellKind::Isolation);
+    // Retention (save/restore) flops: sequential like a plain Dff.
+    EXPECT_EQ(lib.classify("RSDFFQ_X1"), CellKind::Retention);
+    EXPECT_EQ(lib.classify("ENRSDFF_X1"), CellKind::Retention);
+    // Non-collisions: functional names must keep their kinds.
+    EXPECT_EQ(lib.classify("DFF_X1"), CellKind::Dff);
+    EXPECT_EQ(lib.classify("SDFF_X1"), CellKind::Dff);  // scan DFF is not retention
+    EXPECT_EQ(lib.classify("DFCNQ_X1"), CellKind::DffReset);
+    EXPECT_EQ(lib.classify("BUF_X1"), CellKind::Buffer);
+    EXPECT_EQ(lib.classify("$_DFF_P_"), CellKind::Dff);
+    EXPECT_EQ(lib.classify("$_MUX_"), CellKind::Comb);
 }
 
 TEST(CellLibraryTest, SpecificPatternShadowsDefault) {
@@ -122,6 +140,31 @@ cells:
     ASSERT_NE(icg, nullptr);
     EXPECT_EQ(icg->kind, CellKind::Icg);
     EXPECT_EQ(icg->enable_pin, "EN");
+}
+
+TEST(CellLibraryTest, LoadFromYamlLowPowerKinds) {
+    const std::string yaml = R"(
+cells:
+  - pattern: "CLAMPX*"
+    kind: isolation
+    output: Z
+  - pattern: "MYRET*"
+    kind: retention
+    clock: CK
+    data: D
+    output: Q
+)";
+    CellLibrary lib;
+    std::string err;
+    ASSERT_TRUE(CellLibrary::load_from_yaml_string(yaml, lib, &err)) << err;
+    const CellDef* iso = lib.lookup("CLAMPX_1");
+    ASSERT_NE(iso, nullptr);
+    EXPECT_EQ(iso->kind, CellKind::Isolation);
+    EXPECT_EQ(iso->output_pin, "Z");
+    const CellDef* ret = lib.lookup("MYRET_Q");
+    ASSERT_NE(ret, nullptr);
+    EXPECT_EQ(ret->kind, CellKind::Retention);
+    EXPECT_EQ(ret->clock_pin, "CK");
 }
 
 TEST(CellLibraryTest, LoadFromYamlErrors) {

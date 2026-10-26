@@ -155,6 +155,7 @@ struct CellInfo {
     std::vector<PinInfo> pins;
     FfInfo ff;
     LatchInfo latch;
+    bool is_isolation_cell = false;  // power-aware library annotation
 };
 
 // Expression helpers ------------------------------------------------------------
@@ -374,6 +375,18 @@ class Parser {
                     return false;
                 continue;
             }
+            if (t.kind == Tok::K::Word && i + 2 < toks_.size() && toks_[i + 1].text == ":") {
+                // Cell-level `key : value;`. Only low-power annotations are
+                // consumed; other attributes are skipped like skip_item would.
+                const std::string key = t.text;
+                const std::string value = toks_[i + 2].text;
+                i += 3;
+                if (i < toks_.size() && toks_[i].text == ";")
+                    ++i;
+                if (key == "is_isolation_cell")
+                    cell.is_isolation_cell = (value == "true" || value == "1");
+                continue;
+            }
             if (!skip_item(i))
                 return false;
         }
@@ -512,6 +525,12 @@ class Parser {
             *error_ = "liberty:" + std::to_string(t.line) + ": " + msg;
     }
 
+    // Name heuristics mirroring the CellLibrary::with_defaults() low-power
+    // globs (glob_match takes the pattern first).
+    static bool retention_name(const std::string& name) {
+        return glob_match("*RSDFF*", name) || glob_match("*RETENTION*", name);
+    }
+
     // CellInfo -> CellDef (see liberty.h for the mapping rules).
     static CellDef make_def(const CellInfo& cell) {
         CellDef def;
@@ -525,6 +544,15 @@ class Parser {
             }
         }
 
+        // Explicit power annotation (power-aware libraries) wins over the
+        // functional classification below.
+        if (cell.is_isolation_cell) {
+            def.kind = CellKind::Isolation;
+            if (out_pin)
+                def.output_pin = out_pin->name;
+            return def;
+        }
+
         if (cell.ff.present) {
             def.clock_pin = expr_pin(cell.ff.clocked_on);
             def.data_pin = expr_pin(cell.ff.next_state);
@@ -533,7 +561,12 @@ class Parser {
             def.reset_pin = expr_pin(rst_expr);
             def.reset_active_low = expr_negated(rst_expr);
             def.reset_async = true;  // Liberty ff clear/preset are asynchronous
-            if (!cell.ff.clear.empty() && !cell.ff.preset.empty()) {
+            if (retention_name(cell.name)) {
+                // Retention (save/restore) flop: sequential like a plain Dff;
+                // the adapter ignores scan/save ports (SI/SE/...). Reset
+                // properties above still apply.
+                def.kind = CellKind::Retention;
+            } else if (!cell.ff.clear.empty() && !cell.ff.preset.empty()) {
                 def.kind = CellKind::DffSetReset;
                 def.set_pin = expr_pin(cell.ff.preset);
             } else if (!rst_expr.empty()) {

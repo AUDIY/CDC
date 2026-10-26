@@ -286,8 +286,18 @@ Done (PR14):
   is limited to 64 levels; sub-module definitions shadow library cells.
   Flat netlists skip the pass entirely (fast path).
 
-Remaining:
-- Low-power cells (isolation/retention) as safe-crossing blackboxes.
+Done (PR15):
+- Low-power cells (`CellKind::Isolation`/`CellKind::Retention`, default
+  globs `*ISO*`, `*RSDFF*`, `*RETENTION*`; Liberty `is_isolation_cell`
+  annotation and retention name heuristics; YAML kinds
+  `isolation`/`retention`). Isolation clamps are transparent
+  combinational (Buffer-equivalent) and CDC001 crossings whose path
+  crosses one are downgraded to info/VerifiedSafe with provenance
+  (`ir::Node::is_isolation_cell` set by the adapter, preserved by bus
+  regrouping, consumed by an analyzer pass); CDC002/004/005/007 stay
+  fully evaluated. Retention flops are modeled as plain registers
+  (scan/save ports ignored) so the crossings they participate in are
+  never hidden by Unknown-cell opacity.
 
 ## Risks & mitigations
 
