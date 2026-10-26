@@ -12,6 +12,7 @@ This document defines the intent, violation conditions, required evidence, safe 
 | **Safe Conditions** | Synchronizer chain present (downgraded to `info` with `verified_safe`), false-path constraint, multicycle path constraint (configurable), gray-code/handshake/FIFO crossing, waived. |
 | **Exemptions** | None — always emitted (but severity varies). |
 | **Constraint Interaction** | `false_paths` suppresses. `multi_cycle_path` suppresses when `multicycle_path_policy.suppress_rules` includes CDC001 (default: yes). |
+| **Synchronizer Recognition** | Scalar chains (one register per stage) and vector-packed shift chains (`sync <= {sync[0], src}` — a single multi-bit register verified on the AST to be a pure intra-vector chain, recognized with `floor(width / ingress_width)` stages) are both detected and reported identically. Shapes that cannot be structurally verified as pure shifts (reversed concatenations such as `{src, sync[0]}`, right-shift chains, non-literal indices, multi-operand RHS) are conservatively treated as unsynchronized. |
 | **False-Positive Risk** | Low. Only fires on verified cross-domain register paths. |
 | **False-Negative Risk** | Medium. Paths through combinational logic or gated clocks may be missed if not fully traced. |
 

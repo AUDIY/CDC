@@ -15,6 +15,7 @@
 #include "slang/ast/expressions/AssignmentExpressions.h"
 #include "slang/ast/expressions/CallExpression.h"
 #include "slang/ast/expressions/ConversionExpression.h"
+#include "slang/ast/expressions/LiteralExpressions.h"
 #include "slang/ast/expressions/MiscExpressions.h"
 #include "slang/ast/expressions/OperatorExpressions.h"
 #include "slang/ast/expressions/SelectExpressions.h"
@@ -50,6 +51,9 @@ struct AssignInfo {
     bool is_gray_transform = false;
     ir::LogicType logic_type = ir::LogicType::Unknown;
     bool is_multi_operand = false;
+    // Stages of a packed shift chain (`s <= {s[W-1:0], tail}`), 0 when the
+    // assignment is not such a chain; applied to the destination node.
+    uint32_t packed_depth = 0;
 };
 
 struct MultiAssignInfo {
@@ -367,6 +371,103 @@ static bool function_computes_gray(const CallExpression& call, const std::string
     return call_computes_gray_of_named(call, prefix, {}, 0);
 }
 
+// Constant integer value of a select bound. Only literal (possibly
+// conversion-wrapped) expressions are accepted; anything else — parameter
+// references, arithmetic — yields nullopt so callers stay conservative.
+static std::optional<uint64_t> const_int_value(const Expression& expr) {
+    const Expression* e = &expr;
+    while (e->kind == ExpressionKind::Conversion)
+        e = &static_cast<const ConversionExpression&>(*e).operand();
+    if (e->kind != ExpressionKind::IntegerLiteral)
+        return std::nullopt;
+    auto& lit = static_cast<const IntegerLiteral&>(*e);
+    if (lit.getValue().hasUnknown())
+        return std::nullopt;
+    return lit.getValue().as<uint64_t>();
+}
+
+// The constant [hi:lo] range an operand selects from lhs, or false when the
+// operand is not an element/range select of lhs with literal bounds (any
+// other shape is treated conservatively as "not a verified shift step").
+static bool lhs_select_range(const Expression& op, const std::string& lhs_name,
+                             const std::string& prefix, uint32_t& hi, uint32_t& lo) {
+    const Expression* base = nullptr;
+    if (op.kind == ExpressionKind::ElementSelect) {
+        auto& es = static_cast<const ElementSelectExpression&>(op);
+        auto idx = const_int_value(es.selector());
+        if (!idx || *idx > 0xFFFFFFFFull)
+            return false;
+        hi = lo = static_cast<uint32_t>(*idx);
+        base = &es.value();
+    } else if (op.kind == ExpressionKind::RangeSelect) {
+        auto& rs = static_cast<const RangeSelectExpression&>(op);
+        if (rs.getSelectionKind() != RangeSelectionKind::Simple)
+            return false;
+        auto left = const_int_value(rs.left());
+        auto right = const_int_value(rs.right());
+        if (!left || !right || *left > 0xFFFFFFFFull || *right > 0xFFFFFFFFull || *left < *right)
+            return false;
+        hi = static_cast<uint32_t>(*left);
+        lo = static_cast<uint32_t>(*right);
+        base = &rs.value();
+    } else {
+        return false;
+    }
+    if (base->kind != ExpressionKind::NamedValue)
+        return false;
+    auto& nv = static_cast<const NamedValueExpression&>(*base);
+    return prefix + "." + sv_to_string(nv.symbol.name) == lhs_name;
+}
+
+// Stage count of a packed shift chain `lhs <= {lhs_hi..., tail}`: the tail
+// (last operand, resident in the low lhs bits) is the ingress — e.g. the
+// cross-domain source of a vector-packed synchronizer — and every other
+// operand must be the lhs range below its own target position shifted up by
+// the tail width, so values flow strictly upward through the vector with no
+// shortcuts. `sync <= {sync[0], src}` is the canonical two-stage form.
+// Concatenation operands are ordered MSB-first. Returns floor(lhs_width /
+// tail_width) when that is >= 2 stages, otherwise 0 (not a chain).
+static uint32_t packed_shift_chain_stages(const Expression& rhs, const std::string& lhs_name,
+                                          const std::string& prefix, uint32_t lhs_width) {
+    if (rhs.kind != ExpressionKind::Concatenation || lhs_width < 2)
+        return 0;
+    auto& cat = static_cast<const ConcatenationExpression&>(rhs);
+    auto ops = cat.operands();
+    if (ops.size() < 2)
+        return 0;
+
+    uint32_t tail_width = ops.back()->type ? (uint32_t)ops.back()->type->getBitWidth() : 0;
+    if (tail_width == 0 || tail_width >= lhs_width)
+        return 0;
+
+    // Each upper operand must select from lhs at exactly its target range
+    // shifted down by tail_width: target bit k is fed by lhs bit k - Bw.
+    uint32_t from_top = 0;
+    for (size_t i = 0; i + 1 < ops.size(); ++i) {
+        const Expression& op = *ops[i];
+        uint32_t w = op.type ? (uint32_t)op.type->getBitWidth() : 0;
+        if (w == 0 || from_top + w > lhs_width)
+            return 0;
+        uint32_t tgt_hi = lhs_width - 1 - from_top;
+        uint32_t tgt_lo = tgt_hi + 1 - w;
+        if (tgt_hi < tail_width || tgt_lo < tail_width)
+            return 0;
+        uint32_t src_hi = 0;
+        uint32_t src_lo = 0;
+        if (!lhs_select_range(op, lhs_name, prefix, src_hi, src_lo))
+            return 0;
+        if (src_hi != tgt_hi - tail_width || src_lo != tgt_lo - tail_width)
+            return 0;
+        from_top += w;
+    }
+    // The upper group must cover the whole vector above the tail — no
+    // padding, truncation, constants, or foreign signals mixed in.
+    if (lhs_width - from_top != tail_width)
+        return 0;
+    uint32_t stages = lhs_width / tail_width;
+    return stages >= 2 ? stages : 0;
+}
+
 static void collect_assigns(const Statement& stmt, const std::string& prefix,
                             std::vector<AssignInfo>& out, const FormalMap& formal_map = {},
                             size_t depth = 0) {
@@ -408,6 +509,12 @@ static void collect_assigns(const Statement& stmt, const std::string& prefix,
                     bool is_gray_transform = false;
                     ir::LogicType logic_type = ir::LogicType::Unknown;
                     bool is_multi_operand = false;
+                    // Verify a pure intra-vector shift chain on the AST
+                    // (`sync <= {sync[0], src}`) before the operands are
+                    // flattened: at graph level it is indistinguishable from
+                    // `sync <= sync | src`.
+                    uint32_t packed_depth =
+                        packed_shift_chain_stages(assign.right(), resolved_lhs, prefix, l_width);
                     if (assign.right().kind == ExpressionKind::BinaryOp) {
                         auto& binary = static_cast<const BinaryExpression&>(assign.right());
                         if (is_gray_xor_structure(assign.right())) {
@@ -454,14 +561,14 @@ static void collect_assigns(const Statement& stmt, const std::string& prefix,
                         // Push an AssignInfo with empty RHS so the register node
                         // is created in the main processing loop.
                         out.push_back({resolved_lhs, std::string(), l_width, 0, is_gray_transform,
-                                       logic_type, false});
+                                       logic_type, false, packed_depth});
                     } else if (rhs_ops.size() == 1 && !is_multi_operand) {
                         out.push_back({resolved_lhs, rhs_ops[0].first, l_width, rhs_ops[0].second,
-                                       is_gray_transform, logic_type, false});
+                                       is_gray_transform, logic_type, false, packed_depth});
                     } else if (rhs_ops.size() >= 1) {
                         for (auto& [r, r_width] : rhs_ops) {
                             out.push_back({resolved_lhs, r, l_width, r_width, is_gray_transform,
-                                           logic_type, true});
+                                           logic_type, true, packed_depth});
                         }
                     }
                 }
@@ -1052,6 +1159,14 @@ void SlangAdapter::walk_scope(const slang::ast::Scope& scope, ir::Graph& graph,
                                 if (allow_user_annotation_)
                                     apply_pattern_name_tags(*mutable_dst);
                             }
+                        }
+                        // Tag packed shift chains (sticky max): when one
+                        // assignment verifies a pure intra-vector chain, the
+                        // multi-bit node models that many pipeline stages.
+                        if (a.packed_depth > 0 && cr.clock != "comb") {
+                            auto* mutable_dst = graph.find_node_mutable(dst_id);
+                            if (mutable_dst && a.packed_depth > mutable_dst->packed_shift_depth)
+                                mutable_dst->packed_shift_depth = a.packed_depth;
                         }
 
                         // Skip edge creation for literal-only RHS (empty rhs means

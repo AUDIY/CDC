@@ -72,6 +72,20 @@ void SynchronizerMatcher::collect_chain_warnings(const ir::Graph& graph,
     }
 }
 
+// Maps a chain length in stages to the reported pattern (shared by the
+// node-walk and the packed-vector path).
+static SyncPattern pattern_from_depth(size_t depth) {
+    if (depth == 2)
+        return SyncPattern::TwoFF;
+    if (depth == 3)
+        return SyncPattern::ThreeFF;
+    if (depth == 4)
+        return SyncPattern::FourFF;
+    if (depth >= 5)
+        return SyncPattern::NStage;  // 5+ stages
+    return SyncPattern::None;        // no second stage: not a chain
+}
+
 SyncPattern SynchronizerMatcher::find_pattern_for_dest(uint64_t dest_reg_id, const ir::Graph& graph,
                                                        bool strict) const {
     const ir::Node* dest = graph.find_node(dest_reg_id);
@@ -79,7 +93,10 @@ SyncPattern SynchronizerMatcher::find_pattern_for_dest(uint64_t dest_reg_id, con
         return SyncPattern::None;
     if (dest->clock_domain.empty())
         return SyncPattern::None;
-    if (dest->width != 1)
+    // Multi-bit destinations must be frontend-verified packed shift chains
+    // (e.g. `sync <= {sync[0], src}`); a bare wide node with a cross-domain
+    // predecessor — or a self-loop from `sync <= sync | src` — is not one.
+    if (dest->width != 1 && dest->packed_shift_depth < 2)
         return SyncPattern::None;
 
     bool has_cross_domain_register_pred = false;
@@ -105,6 +122,12 @@ SyncPattern SynchronizerMatcher::find_pattern_for_dest(uint64_t dest_reg_id, con
             }
         }
     }
+
+    // Packed shift chain: the RTL frontend verified a pure intra-vector
+    // chain, so one multi-bit node stands for the whole chain — depth comes
+    // from the tag, no node walk (the only intra-node edge is the self-loop).
+    if (dest->width != 1)
+        return pattern_from_depth(dest->packed_shift_depth);
 
     // Count actual depth by walking the chain
     size_t depth = 1;  // dest itself counts as stage 1
@@ -161,15 +184,7 @@ SyncPattern SynchronizerMatcher::find_pattern_for_dest(uint64_t dest_reg_id, con
         depth++;
     }
 
-    if (depth == 1)
-        return SyncPattern::None;
-    if (depth == 2)
-        return SyncPattern::TwoFF;
-    if (depth == 3)
-        return SyncPattern::ThreeFF;
-    if (depth == 4)
-        return SyncPattern::FourFF;
-    return SyncPattern::NStage;  // 5+ stages
+    return pattern_from_depth(depth);
 }
 
 bool SynchronizerMatcher::has_chain_warnings(const ir::Graph& graph, uint64_t dest_reg_id,
@@ -301,6 +316,10 @@ std::vector<SynchronizerChain> SynchronizerMatcher::match(const ir::Graph& graph
 
             collect_chain_warnings(graph, chain);
             chain.depth = chain.stage_ids.size();
+            // A packed chain has a single physical stage node standing for
+            // all of its vector-internal stages.
+            if (node.width != 1)
+                chain.depth = node.packed_shift_depth;
             chains.push_back(std::move(chain));
         }
     }
@@ -310,7 +329,9 @@ std::vector<SynchronizerChain> SynchronizerMatcher::match(const ir::Graph& graph
 
 size_t SynchronizerMatcher::chain_depth(uint64_t dest_reg_id, const ir::Graph& graph) const {
     const ir::Node* dest = graph.find_node(dest_reg_id);
-    if (!dest || dest->clock_domain.empty() || dest->width != 1)
+    if (!dest || dest->clock_domain.empty())
+        return 0;
+    if (dest->width != 1 && dest->packed_shift_depth < 2)
         return 0;
 
     bool has_cross_domain_pred = false;
@@ -324,6 +345,10 @@ size_t SynchronizerMatcher::chain_depth(uint64_t dest_reg_id, const ir::Graph& g
     }
     if (!has_cross_domain_pred)
         return 0;
+
+    // Packed chain: all stages live inside this node (see find_pattern).
+    if (dest->width != 1)
+        return dest->packed_shift_depth;
 
     size_t depth = 1;
     uint64_t current = dest_reg_id;

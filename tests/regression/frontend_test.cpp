@@ -212,6 +212,59 @@ TEST(FrontendTest, Sync2ffNoError) {
     }
 }
 
+TEST(FrontendTest, PackedShiftChainTaggedOnAst) {
+    // `sync_b <= {sync_b[0], reg_a}` is a verified intra-vector shift chain
+    // and tags the node; the reversed `hold_b <= {reg_a, hold_b[0]}` is not.
+    opencdc::frontend::SlangAdapter adapter;
+    auto fe = adapter.elaborate({fixture_path("packed_sync.sv")}, "packed_sync");
+    ASSERT_TRUE(fe.ok);
+
+    const auto* sync_b = fe.graph.find_node_by_name("packed_sync.sync_b");
+    ASSERT_NE(sync_b, nullptr);
+    EXPECT_EQ(sync_b->kind, NodeKind::Register);
+    EXPECT_EQ(sync_b->width, 2u);
+    EXPECT_EQ(sync_b->packed_shift_depth, 2u);
+
+    const auto* hold_b = fe.graph.find_node_by_name("packed_sync.hold_b");
+    ASSERT_NE(hold_b, nullptr);
+    EXPECT_EQ(hold_b->width, 2u);
+    EXPECT_EQ(hold_b->packed_shift_depth, 0u);
+}
+
+TEST(FrontendTest, PackedSync2ffNoError) {
+    // The packed-vector form must analyze exactly like the scalar two
+    // register form: CDC001 downgraded to info/VerifiedSafe with a TwoFF
+    // chain detected at the destination. The reversed (non-chain) vector in
+    // the same fixture must keep its error.
+    opencdc::frontend::SlangAdapter adapter;
+    auto fe = adapter.elaborate({fixture_path("packed_sync.sv")}, "packed_sync");
+    ASSERT_TRUE(fe.ok);
+
+    cdc_clock::DomainExtractor de;
+    auto dr = de.extract(fe.graph);
+
+    cdc_ns::CrossingAnalyzer ca;
+    auto findings = ca.analyze(fe.graph, dr.domains, dr.register_to_domain);
+
+    const cdc_ns::Finding* packed = nullptr;
+    const cdc_ns::Finding* hold = nullptr;
+    for (const auto& f : findings) {
+        if (f.rule_id != "CDC001")
+            continue;
+        if (f.dest_reg_name.find("sync_b") != std::string::npos)
+            packed = &f;
+        else if (f.dest_reg_name.find("hold_b") != std::string::npos)
+            hold = &f;
+    }
+    ASSERT_NE(packed, nullptr);
+    EXPECT_EQ(packed->severity, "info");
+    EXPECT_EQ(packed->detected_sync, cdc_ns::SyncPattern::TwoFF);
+    EXPECT_EQ(packed->safety_status, cdc_ns::SafetyStatus::VerifiedSafe);
+    ASSERT_NE(hold, nullptr);
+    EXPECT_EQ(hold->severity, "error");
+    EXPECT_EQ(hold->safety_status, cdc_ns::SafetyStatus::VerifiedUnsafe);
+}
+
 TEST(FrontendTest, MultiDomainProducesMultipleFindings) {
     opencdc::frontend::SlangAdapter adapter;
     auto fe = adapter.elaborate({fixture_path("multi_domain.sv")}, "multi_domain");

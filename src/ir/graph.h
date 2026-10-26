@@ -79,6 +79,14 @@ struct Node {
     // info/VerifiedSafe by the analyzer: the cell is a methodology-managed
     // power-domain boundary (UPF out of scope), not a synchronizer.
     bool is_isolation_cell = false;
+
+    // Packed shift chain modeled inside one multi-bit register (set by the
+    // RTL frontend for assignments like `sync <= {sync[0], src}`): every
+    // upper bit is fed by the bit below it and the low bits take the tail,
+    // so this single node holds `packed_shift_depth` pipeline stages
+    // (0 = not such a chain). The synchronizer matcher uses the tag to
+    // recognize vector-packed 2FF/3FF chains that span no second node.
+    uint32_t packed_shift_depth = 0;
 };
 
 enum class EdgeRole : uint8_t { Data, Control, Clock, Reset };
