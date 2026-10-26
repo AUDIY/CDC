@@ -86,7 +86,7 @@ std::vector<Finding> ReconvergenceAnalyzer::check_pairs(
             if (src->width <= 1 && has_sync_chain(a->dest_reg_id) && has_sync_chain(b->dest_reg_id))
                 continue;
 
-            // Bounded BFS: collect up to 16 register descendants per path (max 3 hops)
+            // Bounded BFS: collect up to 16 register descendants per path.
             auto collect_descendants = [&](uint64_t start_id) -> std::vector<uint64_t> {
                 std::vector<uint64_t> result;
                 std::queue<std::pair<uint64_t, int>> bfs;
@@ -100,7 +100,7 @@ std::vector<Finding> ReconvergenceAnalyzer::check_pairs(
                     if (depth > 0 && n && n->kind == ir::NodeKind::Register) {
                         result.push_back(cur);
                     }
-                    if (depth >= 3)
+                    if (depth >= max_hops_)
                         continue;
                     for (uint64_t s : graph.register_successors(cur)) {
                         if (visited.insert(s).second) {

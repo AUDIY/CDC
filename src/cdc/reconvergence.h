@@ -15,7 +15,12 @@ class ReconvergenceAnalyzer {
                                  const std::vector<clock::ClockDomain>& domains,
                                  const std::vector<Finding>& crossings);
 
+    void set_max_hops(int hops) {
+        max_hops_ = hops < 1 ? 1 : hops;
+    }
+
    private:
+    int max_hops_ = 3;
     std::vector<uint64_t> find_fanout_sources(const ir::Graph& graph,
                                               const std::vector<clock::ClockDomain>& domains) const;
 

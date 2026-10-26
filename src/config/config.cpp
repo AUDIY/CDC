@@ -352,6 +352,51 @@ static void parse_false_paths_node(const YAML::Node& fp_node, Config& config) {
     }
 }
 
+static bool parse_clock_group_flags(const YAML::Node& grp_node, ClockGroupConfig& grp,
+                                    std::string* error) {
+    // Unspecified groups stay exclusive (historical YAML default: they expand
+    // into false paths). `asynchronous: true` is the SDC-style opposite and
+    // must NOT become a false path — those clocks still need CDC checking.
+    grp.exclusive = true;
+    grp.asynchronous = false;
+    if (grp_node["exclusive"]) {
+        bool b = true;
+        if (!parse_yaml_bool(grp_node["exclusive"], b, error, "clock_groups.exclusive"))
+            return false;
+        grp.exclusive = b;
+    }
+    if (grp_node["asynchronous"]) {
+        bool b = false;
+        if (!parse_yaml_bool(grp_node["asynchronous"], b, error, "clock_groups.asynchronous"))
+            return false;
+        grp.asynchronous = b;
+        if (b)
+            grp.exclusive = false;
+    }
+    return true;
+}
+
+static void parse_clock_group_clocks(const YAML::Node& grp_node, ClockGroupConfig& grp) {
+    if (!grp_node["clocks"])
+        return;
+    if (grp_node["clocks"].IsSequence()) {
+        for (const auto& c : grp_node["clocks"])
+            grp.clocks.push_back(c.as<std::string>());
+        return;
+    }
+    if (grp_node["clocks"].IsScalar()) {
+        std::string val = grp_node["clocks"].as<std::string>();
+        std::istringstream ss(val);
+        std::string clk;
+        while (std::getline(ss, clk, ',')) {
+            auto a = clk.find_first_not_of(" \t");
+            auto b = clk.find_last_not_of(" \t");
+            if (a != std::string::npos)
+                grp.clocks.push_back(clk.substr(a, b - a + 1));
+        }
+    }
+}
+
 static void parse_clock_groups_node(const YAML::Node& cg_node, Config& config, std::string* error) {
     if (!cg_node)
         return;
@@ -362,29 +407,9 @@ static void parse_clock_groups_node(const YAML::Node& cg_node, Config& config, s
             if (!grp_node.IsMap())
                 continue;
             ClockGroupConfig grp;
-            grp.exclusive = true;
-            if (grp_node["clocks"]) {
-                if (grp_node["clocks"].IsSequence()) {
-                    for (const auto& c : grp_node["clocks"])
-                        grp.clocks.push_back(c.as<std::string>());
-                } else if (grp_node["clocks"].IsScalar()) {
-                    std::string val = grp_node["clocks"].as<std::string>();
-                    std::istringstream ss(val);
-                    std::string clk;
-                    while (std::getline(ss, clk, ',')) {
-                        auto a = clk.find_first_not_of(" \t");
-                        auto b = clk.find_last_not_of(" \t");
-                        if (a != std::string::npos)
-                            grp.clocks.push_back(clk.substr(a, b - a + 1));
-                    }
-                }
-            }
-            if (grp_node["exclusive"]) {
-                bool b = true;
-                if (!parse_yaml_bool(grp_node["exclusive"], b, error, "clock_groups.exclusive"))
-                    return;
-                grp.exclusive = b;
-            }
+            parse_clock_group_clocks(grp_node, grp);
+            if (!parse_clock_group_flags(grp_node, grp, error))
+                return;
             config.clock_groups.push_back(std::move(grp));
         }
         return;
@@ -393,31 +418,10 @@ static void parse_clock_groups_node(const YAML::Node& cg_node, Config& config, s
         return;
     for (auto it = cg_node.begin(); it != cg_node.end(); ++it) {
         ClockGroupConfig grp;
-        grp.exclusive = true;
         YAML::Node grp_node = it->second;
-        if (grp_node["clocks"]) {
-            if (grp_node["clocks"].IsSequence()) {
-                for (const auto& c : grp_node["clocks"]) {
-                    grp.clocks.push_back(c.as<std::string>());
-                }
-            } else if (grp_node["clocks"].IsScalar()) {
-                std::string val = grp_node["clocks"].as<std::string>();
-                std::istringstream ss(val);
-                std::string clk;
-                while (std::getline(ss, clk, ',')) {
-                    auto a = clk.find_first_not_of(" \t");
-                    auto b = clk.find_last_not_of(" \t");
-                    if (a != std::string::npos)
-                        grp.clocks.push_back(clk.substr(a, b - a + 1));
-                }
-            }
-        }
-        if (grp_node["exclusive"]) {
-            bool b = true;
-            if (!parse_yaml_bool(grp_node["exclusive"], b, error, "clock_groups.exclusive"))
-                return;
-            grp.exclusive = b;
-        }
+        parse_clock_group_clocks(grp_node, grp);
+        if (!parse_clock_group_flags(grp_node, grp, error))
+            return;
         config.clock_groups.push_back(std::move(grp));
     }
 }

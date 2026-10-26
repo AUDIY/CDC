@@ -38,6 +38,7 @@ struct FalsePathConfig {
 struct ClockGroupConfig {
     std::vector<std::string> clocks;
     bool exclusive = false;
+    bool asynchronous = false;
 };
 
 struct ResetPolicyConfig {

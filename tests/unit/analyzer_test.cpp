@@ -258,6 +258,31 @@ TEST_F(AnalyzerTest, DefineAndIncdirEnableCrossing) {
     EXPECT_TRUE(has_cdc001);
 }
 
+TEST_F(AnalyzerTest, AsicSignoffProfileAppliesCdc007ErrorOverride) {
+    AnalysisRequest req;
+    req.input_files = {fixture_path("missing_reset_cdc007.sv")};
+    req.top_module = "missing_reset_cdc007";
+
+    auto baseline = analyzer.run(req);
+    ASSERT_TRUE(baseline.ok) << (baseline.errors.empty() ? "" : baseline.errors[0]);
+    bool baseline_error = false;
+    for (const auto& f : baseline.findings) {
+        if (f.rule_id == "CDC007" && f.severity == "error")
+            baseline_error = true;
+    }
+    EXPECT_FALSE(baseline_error) << "default CDC007 is info, not error";
+
+    req.profile = "asic_signoff";
+    auto result = analyzer.run(req);
+    ASSERT_TRUE(result.ok) << (result.errors.empty() ? "" : result.errors[0]);
+    bool found_error = false;
+    for (const auto& f : result.findings) {
+        if (f.rule_id == "CDC007" && f.severity == "error")
+            found_error = true;
+    }
+    EXPECT_TRUE(found_error) << "--profile asic_signoff must apply CDC007 severity=error";
+}
+
 TEST_F(AnalyzerTest, AnalysisStatusCompleteOnSuccess) {
     AnalysisRequest req;
     req.input_files = {fixture_path("cdc_crossing.sv")};

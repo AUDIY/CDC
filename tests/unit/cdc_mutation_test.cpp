@@ -278,6 +278,31 @@ TEST_F(CdcMutationTest, MultiDomainDaisyChainTriggersCdc008) {
     EXPECT_EQ(cdc008, 1) << "One unique daisy-chain finding for a 3-domain line";
 }
 
+TEST_F(CdcMutationTest, DaisyChainThroughSharedJoinIsNotMaskedByBacktrack) {
+    uint64_t src = graph.add_register("mod.src", "clk_a", 1, {"mod.sv", 5, 5});
+    uint64_t same = graph.add_register("mod.same", "clk_a", 1, {"mod.sv", 6, 5});
+    uint64_t join = graph.add_register("mod.join", "clk_a", 1, {"mod.sv", 7, 5});
+    uint64_t mid = graph.add_register("mod.mid", "clk_b", 1, {"mod.sv", 8, 5});
+    uint64_t dst = graph.add_register("mod.dst", "clk_c", 1, {"mod.sv", 9, 5});
+    for (auto id : {src, same, join, mid, dst})
+        graph.find_node_mutable(id)->reset_signal = "rst_n";
+    graph.add_edge(src, same);
+    graph.add_edge(same, join);
+    graph.add_edge(src, mid);
+    graph.add_edge(mid, join);
+    graph.add_edge(join, dst);
+
+    auto dr = domain_extractor.extract(graph);
+    auto findings = crossing_analyzer.analyze(graph, dr.domains, dr.register_to_domain);
+
+    int cdc008 = 0;
+    for (const auto& f : findings) {
+        if (f.rule_id == "CDC008")
+            ++cdc008;
+    }
+    EXPECT_GE(cdc008, 1) << "CDC008 must still fire after DFS backtrack through a shared join";
+}
+
 TEST_F(CdcMutationTest, ResetDomainCrossingTriggersCdc009) {
     uint64_t src = graph.add_register("mod.src", "clk_a", 1, {"mod.sv", 5, 5});
     uint64_t dst = graph.add_register("mod.dst", "clk_b", 1, {"mod.sv", 6, 5});

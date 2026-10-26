@@ -634,6 +634,78 @@ TEST_F(CrossingTest, BlackboxMatchesModuleTypeNotInstanceName) {
     EXPECT_TRUE(found_bb);
 }
 
+TEST_F(CrossingTest, IntermediateGatedClockReportsCdc004WithoutCrash) {
+    uint64_t src = graph.add_register("mod.src", "clk_a", 1, {"mod.sv", 5, 5});
+    uint64_t mid = graph.add_register("mod.mid", "clk_a", 1, {"mod.sv", 6, 5});
+    uint64_t dst = graph.add_register("mod.dst", "clk_b", 1, {"mod.sv", 7, 5});
+    for (auto id : {src, mid, dst})
+        graph.find_node_mutable(id)->reset_signal = "rst_n";
+    graph.find_node_mutable(mid)->clock_is_gated = true;
+    graph.add_edge(src, mid);
+    graph.add_edge(mid, dst);
+
+    auto dr = domain_extractor.extract(graph);
+    auto findings = crossing_analyzer.analyze(graph, dr.domains, dr.register_to_domain);
+
+    bool found = false;
+    for (const auto& f : findings) {
+        if (f.rule_id == "CDC004") {
+            found = true;
+            EXPECT_NE(f.reason.find("mod.mid"), std::string::npos);
+        }
+    }
+    EXPECT_TRUE(found) << "gated intermediate must fire CDC004 without null-deref";
+}
+
+TEST_F(CrossingTest, MinSyncStagesKeepsShortChainAsError) {
+    uint64_t src = graph.add_register("mod.src", "clk_a", 1, {"mod.sv", 5, 5});
+    uint64_t meta = graph.add_register("mod.meta", "clk_b", 1, {"mod.sv", 8, 5});
+    uint64_t sync = graph.add_register("mod.sync", "clk_b", 1, {"mod.sv", 9, 5});
+    for (auto id : {src, meta, sync})
+        graph.find_node_mutable(id)->reset_signal = "rst_n";
+    graph.add_edge(src, meta);
+    graph.add_edge(meta, sync);
+
+    crossing_analyzer.set_min_sync_stages(3);
+    auto dr = domain_extractor.extract(graph);
+    auto findings = crossing_analyzer.analyze(graph, dr.domains, dr.register_to_domain);
+
+    bool found_error = false;
+    for (const auto& f : findings) {
+        if (f.rule_id == "CDC001" && f.severity == "error")
+            found_error = true;
+    }
+    EXPECT_TRUE(found_error) << "2FF chain must stay error when min_sync_stages=3";
+}
+
+TEST_F(CrossingTest, ChainWarningsAreNotVerifiedSafe) {
+    uint64_t src = graph.add_register("mod.src", "clk_a", 1, {"mod.sv", 5, 5});
+    uint64_t meta = graph.add_register("mod.meta", "clk_b", 1, {"mod.sv", 8, 5});
+    uint64_t sync = graph.add_register("mod.sync", "clk_b", 1, {"mod.sv", 9, 5});
+    auto* m = graph.find_node_mutable(meta);
+    m->reset_signal = "rst_n";
+    m->reset_pol = ResetPolarity::ActiveLow;
+    auto* s = graph.find_node_mutable(sync);
+    s->reset_signal = "rst";
+    s->reset_pol = ResetPolarity::ActiveHigh;
+    graph.find_node_mutable(src)->reset_signal = "rst_n";
+    graph.add_edge(src, meta);
+    graph.add_edge(meta, sync);
+
+    auto dr = domain_extractor.extract(graph);
+    auto findings = crossing_analyzer.analyze(graph, dr.domains, dr.register_to_domain);
+
+    bool found = false;
+    for (const auto& f : findings) {
+        if (f.rule_id == "CDC001") {
+            found = true;
+            EXPECT_NE(f.safety_status, SafetyStatus::VerifiedSafe);
+            EXPECT_NE(f.severity, "info");
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
 TEST_F(CrossingTest, BlackboxDoesNotMatchDatapathNamedLikePrimitive) {
     uint64_t ff_src = graph.add_register("top.src_ff", "clk_a", 1, {"mod.sv", 5, 5}, "top", "top");
     uint64_t ff_dst = graph.add_register("top.xpm_cdc_gray.q", "clk_b", 1, {"mod.sv", 15, 5},

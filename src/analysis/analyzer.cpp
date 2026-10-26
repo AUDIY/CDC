@@ -11,11 +11,19 @@
 #include "clock/constraints.h"
 #include "clock/resolve.h"
 #include "config/config.h"
+#include "config/profile.h"
 #include "frontend/slang_adapter.h"
 #include "ir/module_tree.h"
 #include "rules/rule.h"
 
 namespace opencdc::analysis {
+
+static void apply_request_profile(const AnalysisRequest& request, config::Config& cfg) {
+    if (request.profile.empty())
+        return;
+    config::ProfileSettings settings = config::get_profile_settings(request.profile);
+    config::apply_profile(settings, cfg);
+}
 
 AnalysisResult Analyzer::run(const AnalysisRequest& request) {
     // Parse config FIRST: FrontendOptions depend on it (allow_user_annotation),
@@ -34,6 +42,7 @@ AnalysisResult Analyzer::run(const AnalysisRequest& request) {
             return result;
         }
     }
+    apply_request_profile(request, cfg);
 
     // 1. Frontend: parse and elaborate to IR graph. InputType::Auto runs the
     // conservative per-file heuristic (ambiguous → rtl, preserving the
@@ -271,6 +280,7 @@ AnalysisResult Analyzer::run_on_graph(ir::Graph graph, const AnalysisRequest& re
 
     // 9. Reconvergence.
     cdc::ReconvergenceAnalyzer reconvergence_analyzer;
+    reconvergence_analyzer.set_max_hops(cfg.reconvergence_depth);
     auto reconv_findings =
         reconvergence_analyzer.analyze(result.graph, result.domains.domains, findings);
     for (auto& f : reconv_findings) {
@@ -410,6 +420,7 @@ AnalysisResult Analyzer::run_incremental(AnalysisResult& previous, const Analysi
             return result;
         }
     }
+    apply_request_profile(request, cfg);
     AnalysisResult result = run_on_graph(previous.graph, request, std::move(cfg));
     if (result.ok)
         previous = result;

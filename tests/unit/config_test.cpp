@@ -295,6 +295,19 @@ TEST(ConfigTest, ClockGroupsNested) {
     EXPECT_TRUE(config.clock_groups[0].exclusive);
 }
 
+TEST(ConfigTest, AsynchronousClockGroupIsNotExclusive) {
+    opencdc::config::ConfigParser parser;
+    auto config = parser.parse_string(
+        "clock_groups:\n"
+        "  async_group:\n"
+        "    clocks: [clk_a, clk_b]\n"
+        "    asynchronous: true\n");
+
+    ASSERT_EQ(config.clock_groups.size(), 1u);
+    EXPECT_TRUE(config.clock_groups[0].asynchronous);
+    EXPECT_FALSE(config.clock_groups[0].exclusive);
+}
+
 TEST(ConfigTest, MixedNestedAndCompact) {
     opencdc::config::ConfigParser parser;
     auto config = parser.parse_string(

@@ -148,10 +148,10 @@ std::vector<Finding> CrossingAnalyzer::analyze(
                 ctx.destination_clock = dst_dom->name;
                 ctx.source_register = src->hier_name;
                 ctx.destination_register = dst->hier_name;
-                ctx.source_cell = "";
-                ctx.destination_cell = "";
-                ctx.source_pin = "";
-                ctx.destination_pin = "";
+                ctx.source_cell = src->hier_name;
+                ctx.destination_cell = dst->hier_name;
+                ctx.source_pin = src->hier_name;
+                ctx.destination_pin = dst->hier_name;
                 ctx.path_nodes.clear();
                 for (auto nid : reg_path.node_ids) {
                     const ir::Node* n = graph.find_node(nid);
@@ -253,7 +253,20 @@ std::vector<Finding> CrossingAnalyzer::analyze(
                                 pattern_recognizer_->is_handshake_signal(dst_id, graph))) ||
                               src->is_handshake_signal || dst->is_handshake_signal;
 
-            if (crossing_sync != SyncPattern::None) {
+            if (crossing_sync != SyncPattern::None &&
+                sync_matcher_.below_min_stages(dst_id, graph, min_sync_stages_)) {
+                f.severity = "error";
+                f.safety_status = SafetyStatus::VerifiedUnsafe;
+                f.safety_provenance = "synchronizer chain shorter than min_sync_stages=" +
+                                      std::to_string(min_sync_stages_);
+            } else if (crossing_sync != SyncPattern::None &&
+                       sync_matcher_.has_chain_warnings(graph, dst_id, true)) {
+                f.severity = "warning";
+                f.safety_status = SafetyStatus::Ambiguous;
+                f.safety_provenance =
+                    "synchronizer chain detected but has structural warnings "
+                    "(reset mismatch or stage fanout)";
+            } else if (crossing_sync != SyncPattern::None) {
                 f.severity = "info";
                 f.safety_status = SafetyStatus::VerifiedSafe;
                 f.safety_provenance = "synchronizer chain detected at destination";
@@ -367,8 +380,6 @@ std::vector<Finding> CrossingAnalyzer::analyze(
                 }
             }
             if (gated_hit) {
-                const ir::Node* gated_src = src->clock_is_gated ? src : nullptr;
-                const ir::Node* gated_dst = dst->clock_is_gated ? dst : nullptr;
                 Finding gc;
                 gc.rule_id = "CDC004";
                 gc.rule_name = "gated_clock_crossing";
@@ -385,15 +396,14 @@ std::vector<Finding> CrossingAnalyzer::analyze(
                 gc.source_module_path = src->module_path;
                 gc.dest_module_path = dst->module_path;
                 std::string gated_info;
-                if (gated_src && gated_dst) {
-                    gated_info = "both source '" + gated_src->hier_name + "' (domain '" +
-                                 gated_src->clock_domain + "') and destination '" +
-                                 gated_dst->hier_name + "' (domain '" + gated_dst->clock_domain +
-                                 "')";
+                if (src->clock_is_gated && dst->clock_is_gated) {
+                    gated_info = "both source '" + src->hier_name + "' (domain '" +
+                                 src->clock_domain + "') and destination '" + dst->hier_name +
+                                 "' (domain '" + dst->clock_domain + "')";
                 } else {
-                    const ir::Node* g = gated_src ? gated_src : gated_dst;
-                    gated_info = "'" + g->hier_name + "' (domain '" + g->clock_domain +
-                                 "', root: '" + g->root_clock + "')";
+                    gated_info = "'" + gated_hit->hier_name + "' (domain '" +
+                                 gated_hit->clock_domain + "', root: '" + gated_hit->root_clock +
+                                 "')";
                 }
                 gc.reason = "Register " + gated_info +
                             " is clocked by a gated clock on a crossing from domain '" +
@@ -560,6 +570,7 @@ std::vector<Finding> CrossingAnalyzer::analyze(
                 stack_succs.pop_back();
                 stack_idx.pop_back();
                 if (!path.empty()) {
+                    on_path.erase(path.back());
                     path.pop_back();
                     dom_seq.pop_back();
                 }
