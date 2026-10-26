@@ -8,11 +8,11 @@
 namespace opencdc::frontend::netlist {
 
 enum class TokenKind {
-    Identifier,        // plain identifier: module, wire, DFFCNQ_X1
-    EscapedIdentifier, // \foo.bar[3]  (text excludes the leading backslash)
-    Number,            // 1'bz, 4'hF, 32'd5, 1'b0
-    Symbol,            // single punctuation char: ( ) [ ] { } ; , . : # = * etc.
-    StringLit,         // "text"
+    Identifier,         // plain identifier: module, wire, DFFCNQ_X1
+    EscapedIdentifier,  // \foo.bar[3]  (text excludes the leading backslash)
+    Number,             // 1'bz, 4'hF, 32'd5, 1'b0
+    Symbol,             // single punctuation char: ( ) [ ] { } ; , . : # = * etc.
+    StringLit,          // "text"
     EndOfFile
 };
 

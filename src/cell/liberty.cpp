@@ -97,11 +97,9 @@ class Tokenizer {
             size_t start = i;
             while (i < src_.size()) {
                 char d = src_[i];
-                if (d == ' ' || d == '\t' || d == '\r' || d == '\n' ||
-                    std::strchr("{}();:,\"/", d))
+                if (d == ' ' || d == '\t' || d == '\r' || d == '\n' || std::strchr("{}();:,\"/", d))
                     break;
-                if (d == '/' && i + 1 < src_.size() &&
-                    (src_[i + 1] == '/' || src_[i + 1] == '*'))
+                if (d == '/' && i + 1 < src_.size() && (src_[i + 1] == '/' || src_[i + 1] == '*'))
                     break;
                 ++i;
             }
@@ -196,8 +194,7 @@ bool expr_negated(const std::string& expr) {
 // the operator characters of a function expression. A single-kind operator
 // set maps cleanly; mixed operators are complex expressions and stay unknown.
 int expr_logic_hint(const std::string& expr) {
-    bool has_and = false, has_or = false, has_xor = false, has_not = false,
-         has_mux = false;
+    bool has_and = false, has_or = false, has_xor = false, has_not = false, has_mux = false;
     bool has_ident = false;
     for (char c : expr) {
         switch (c) {
@@ -228,8 +225,7 @@ int expr_logic_hint(const std::string& expr) {
         return kMux;
     if (!has_ident)
         return -1;  // constant expression ("0"/"1"): nothing to classify
-    int kinds = (has_and ? 1 : 0) + (has_or ? 1 : 0) + (has_xor ? 1 : 0) +
-                (has_not ? 1 : 0);
+    int kinds = (has_and ? 1 : 0) + (has_or ? 1 : 0) + (has_xor ? 1 : 0) + (has_not ? 1 : 0);
     if (kinds > 1)
         return -1;  // complex mixed expression
     if (has_xor)
@@ -247,16 +243,14 @@ int expr_logic_hint(const std::string& expr) {
 
 class Parser {
    public:
-    Parser(std::vector<Tok> toks, std::string* error)
-        : toks_(std::move(toks)), error_(error) {}
+    Parser(std::vector<Tok> toks, std::string* error) : toks_(std::move(toks)), error_(error) {}
 
     bool parse(CellLibrary& out) {
         size_t i = 0;
         while (i < toks_.size()) {
             const Tok& t = toks_[i];
-            if (t.kind == Tok::K::Word &&
-                (t.text == "library" || t.text == "cell") && i + 2 < toks_.size() &&
-                toks_[i + 1].text == "(") {
+            if (t.kind == Tok::K::Word && (t.text == "library" || t.text == "cell") &&
+                i + 2 < toks_.size() && toks_[i + 1].text == "(") {
                 bool is_cell = (t.text == "cell");
                 std::string name;
                 if (!parse_args_name(i, name))
@@ -332,8 +326,7 @@ class Parser {
     bool parse_cell_body(size_t& i, CellInfo& cell) {
         while (i < toks_.size() && toks_[i].text != "}") {
             const Tok& t = toks_[i];
-            if (t.kind == Tok::K::Word && i + 2 < toks_.size() &&
-                toks_[i + 1].text == "(") {
+            if (t.kind == Tok::K::Word && i + 2 < toks_.size() && toks_[i + 1].text == "(") {
                 const std::string& gw = t.text;
                 if (gw == "pin") {
                     PinInfo pin;
@@ -360,8 +353,8 @@ class Parser {
                     ++i;
                     if (gw == "ff") {
                         cell.ff.present = true;
-                        if (!parse_kv_body(i, cell.ff.clocked_on, cell.ff.next_state,
-                                           cell.ff.clear, &cell.ff.preset))
+                        if (!parse_kv_body(i, cell.ff.clocked_on, cell.ff.next_state, cell.ff.clear,
+                                           &cell.ff.preset))
                             return false;
                     } else {
                         cell.latch.present = true;
@@ -396,8 +389,7 @@ class Parser {
     bool parse_pin_body(size_t& i, PinInfo& pin) {
         while (i < toks_.size() && toks_[i].text != "}") {
             const Tok& t = toks_[i];
-            if (t.kind == Tok::K::Word && i + 2 < toks_.size() &&
-                toks_[i + 1].text == ":") {
+            if (t.kind == Tok::K::Word && i + 2 < toks_.size() && toks_[i + 1].text == ":") {
                 std::string key = t.text;
                 std::string value = toks_[i + 2].text;
                 i += 3;
@@ -419,12 +411,10 @@ class Parser {
 
     // ff/latch body: capture `key : value;` attributes (both string and
     // bareword values); ignore everything else.
-    bool parse_kv_body(size_t& i, std::string& a, std::string& b, std::string& c,
-                       std::string* d) {
+    bool parse_kv_body(size_t& i, std::string& a, std::string& b, std::string& c, std::string* d) {
         while (i < toks_.size() && toks_[i].text != "}") {
             const Tok& t = toks_[i];
-            if (t.kind == Tok::K::Word && i + 2 < toks_.size() &&
-                toks_[i + 1].text == ":") {
+            if (t.kind == Tok::K::Word && i + 2 < toks_.size() && toks_[i + 1].text == ":") {
                 std::string key = t.text;
                 std::string value = toks_[i + 2].text;
                 i += 3;
@@ -453,15 +443,13 @@ class Parser {
     // without arguments, a bare `;`, or a single stray token.
     bool skip_item(size_t& i) {
         const Tok& t = toks_[i];
-        if (t.kind == Tok::K::Word && i + 2 < toks_.size() &&
-            toks_[i + 1].text == ":") {
+        if (t.kind == Tok::K::Word && i + 2 < toks_.size() && toks_[i + 1].text == ":") {
             i += 3;  // key : value
             if (i < toks_.size() && toks_[i].text == ";")
                 ++i;
             return true;
         }
-        if (t.kind == Tok::K::Word && i + 1 < toks_.size() &&
-            toks_[i + 1].text == "(")
+        if (t.kind == Tok::K::Word && i + 1 < toks_.size() && toks_[i + 1].text == "(")
             return skip_group(i);
         if (t.text == "{")
             return skip_group(i);
@@ -556,8 +544,7 @@ class Parser {
         if (cell.ff.present) {
             def.clock_pin = expr_pin(cell.ff.clocked_on);
             def.data_pin = expr_pin(cell.ff.next_state);
-            const std::string& rst_expr =
-                !cell.ff.clear.empty() ? cell.ff.clear : cell.ff.preset;
+            const std::string& rst_expr = !cell.ff.clear.empty() ? cell.ff.clear : cell.ff.preset;
             def.reset_pin = expr_pin(rst_expr);
             def.reset_active_low = expr_negated(rst_expr);
             def.reset_async = true;  // Liberty ff clear/preset are asynchronous
@@ -606,8 +593,7 @@ class Parser {
 
 }  // namespace
 
-bool load_liberty_string(const std::string& content, CellLibrary& out,
-                         std::string* error) {
+bool load_liberty_string(const std::string& content, CellLibrary& out, std::string* error) {
     if (error)
         error->clear();
     Tokenizer tz(content, error);

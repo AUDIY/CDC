@@ -54,8 +54,8 @@ const std::unordered_set<std::string>& rtl_keywords() {
 // Structural markers required before we call a file "netlist". Guards against
 // classifying an empty/garbled file as a netlist.
 const std::unordered_set<std::string>& netlist_markers() {
-    static const std::unordered_set<std::string> kWords = {"module", "input", "output",
-                                                           "wire",   "assign"};
+    static const std::unordered_set<std::string> kWords = {"module", "input", "output", "wire",
+                                                           "assign"};
     return kWords;
 }
 

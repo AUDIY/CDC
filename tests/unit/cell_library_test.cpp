@@ -23,10 +23,10 @@ TEST(CellLibraryTest, GlobMatchBasics) {
 }
 
 TEST(CellLibraryTest, KindNamesRoundTrip) {
-    CellKind kinds[] = {CellKind::Dff,       CellKind::DffReset, CellKind::DffEnable,
-                        CellKind::DffSetReset, CellKind::Latch,   CellKind::Icg,
-                        CellKind::Buffer,    CellKind::Inverter,  CellKind::Comb,
-                        CellKind::Isolation, CellKind::Retention};
+    CellKind kinds[] = {CellKind::Dff,         CellKind::DffReset, CellKind::DffEnable,
+                        CellKind::DffSetReset, CellKind::Latch,    CellKind::Icg,
+                        CellKind::Buffer,      CellKind::Inverter, CellKind::Comb,
+                        CellKind::Isolation,   CellKind::Retention};
     for (CellKind k : kinds) {
         CellKind parsed;
         ASSERT_TRUE(parse_cell_kind(cell_kind_name(k), parsed)) << cell_kind_name(k);
@@ -179,9 +179,8 @@ TEST(CellLibraryTest, LoadFromYamlErrors) {
     EXPECT_FALSE(err.empty());
     // Bad kind.
     err.clear();
-    EXPECT_FALSE(
-        CellLibrary::load_from_yaml_string("cells:\n  - pattern: \"X*\"\n    kind: nope\n", lib,
-                                           &err));
+    EXPECT_FALSE(CellLibrary::load_from_yaml_string("cells:\n  - pattern: \"X*\"\n    kind: nope\n",
+                                                    lib, &err));
     EXPECT_FALSE(err.empty());
     // Not a map.
     err.clear();

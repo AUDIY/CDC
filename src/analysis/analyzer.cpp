@@ -62,8 +62,7 @@ AnalysisResult Analyzer::run(const AnalysisRequest& request) {
     fe_opts.allow_user_annotation = cfg.allow_user_annotation;
     fe_opts.cell_map_path =
         !request.cell_map_path.empty() ? request.cell_map_path : cfg.cell_map_path;
-    fe_opts.liberty_path =
-        !request.liberty_path.empty() ? request.liberty_path : cfg.liberty_path;
+    fe_opts.liberty_path = !request.liberty_path.empty() ? request.liberty_path : cfg.liberty_path;
     fe_opts.name_map_path =
         !request.name_map_path.empty() ? request.name_map_path : cfg.name_map_path;
     fe_opts.max_nodes = request.max_nodes ? request.max_nodes : cfg.max_nodes;

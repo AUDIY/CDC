@@ -208,9 +208,8 @@ static int parse_args(int argc, const char* argv[], CheckOptions& opts) {
                    arg == "--html-dir" || arg == "--disable-rule" || arg == "--severity" ||
                    arg == "--jobs" || arg == "--profile" || arg == "--incdir" || arg == "+incdir" ||
                    arg == "--define" || arg == "+define" || arg == "--save-baseline" ||
-                   arg == "--compare-baseline" || arg == "--false-path" ||
-                   arg == "--input-type" || arg == "--cell-map" || arg == "--max-nodes" ||
-                   arg == "--max-edges") {
+                   arg == "--compare-baseline" || arg == "--false-path" || arg == "--input-type" ||
+                   arg == "--cell-map" || arg == "--max-nodes" || arg == "--max-edges") {
             std::cerr << "Error: option '" << arg << "' requires a value\n";
             return -1;
         } else {
@@ -271,8 +270,7 @@ int run(int argc, const char* argv[]) {
                 print_usage(argv[0]);
                 return static_cast<int>(ExitCode::OK);
             } else if (arg == "--port" || arg == "--top" || arg == "--config" ||
-                       arg == "--waiver" || arg == "--constraints" ||
-                       arg == "--input-type") {
+                       arg == "--waiver" || arg == "--constraints" || arg == "--input-type") {
                 std::cerr << "Error: option '" << arg << "' requires a value\n";
                 return static_cast<int>(ExitCode::INPUT_ERROR);
             } else {

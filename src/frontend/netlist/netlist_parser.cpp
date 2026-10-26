@@ -14,8 +14,8 @@ const std::unordered_set<std::string>& gate_primitives() {
     // Built-in gate primitives (positional; first port is the output). Map to
     // combinational/passthrough logic in the adapter.
     static const std::unordered_set<std::string> kGates = {
-        "and",  "or",   "not",  "nand", "nor",  "xor", "xnor", "buf",
-        "bufif0", "bufif1", "notif0", "notif1", "pullup", "pulldown"};
+        "and", "or",     "not",    "nand",   "nor",    "xor",    "xnor",
+        "buf", "bufif0", "bufif1", "notif0", "notif1", "pullup", "pulldown"};
     return kGates;
 }
 
@@ -32,8 +32,7 @@ namespace {
 
 class Parser {
    public:
-    Parser(const std::vector<Token>& tokens, const std::string& filename,
-           const std::string& top)
+    Parser(const std::vector<Token>& tokens, const std::string& filename, const std::string& top)
         : tokens_(tokens), filename_(filename), top_(top) {}
 
     ParseResult run() {
@@ -459,9 +458,9 @@ class Parser {
         uint32_t msb = 0, lsb = 0;
         while (!at_end() && !is_sym(")")) {
             if (match_kw("input") || match_kw("output") || match_kw("inout")) {
-                dir = (tokens_[pos_ - 1].text == "output") ? PortDir::Output
-                       : (tokens_[pos_ - 1].text == "inout") ? PortDir::Inout
-                                                             : PortDir::Input;
+                dir = (tokens_[pos_ - 1].text == "output")  ? PortDir::Output
+                      : (tokens_[pos_ - 1].text == "inout") ? PortDir::Inout
+                                                            : PortDir::Input;
                 // Optional net type keywords then optional range.
                 while (is_decl_keyword(peek().text) && !is_sym(",") && !is_sym(")"))
                     advance();

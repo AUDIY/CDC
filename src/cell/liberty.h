@@ -40,8 +40,7 @@ namespace opencdc::cell {
 // Unknown groups (timing, leakage_power, ...), vendor attributes, and
 // `` `define ``-style directives are skipped, so real vendor libraries parse.
 // Only classification data is consumed; nothing timing-related is extracted.
-bool load_liberty_file(const std::string& path, CellLibrary& out,
-                       std::string* error = nullptr);
+bool load_liberty_file(const std::string& path, CellLibrary& out, std::string* error = nullptr);
 bool load_liberty_string(const std::string& content, CellLibrary& out,
                          std::string* error = nullptr);
 

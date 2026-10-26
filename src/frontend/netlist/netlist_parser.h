@@ -13,8 +13,8 @@ enum class PortDir { Input, Output, Inout };
 struct NetRef {
     enum class Kind { Net, Const, Concat };
     Kind kind = Kind::Net;
-    std::string net;        // base net name (Kind::Net)
-    bool has_bit = false;   // bit-select `net[3]`
+    std::string net;       // base net name (Kind::Net)
+    bool has_bit = false;  // bit-select `net[3]`
     uint32_t bit = 0;
     char const_val = '0';             // Kind::Const: '0' | '1' | 'x' | 'z'
     std::vector<std::string> concat;  // Kind::Concat: member net names

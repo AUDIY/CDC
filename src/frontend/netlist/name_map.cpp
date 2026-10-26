@@ -36,8 +36,7 @@ bool split_bit(const std::string& name, std::string* base, long* idx) {
 }  // namespace
 
 bool load_name_map(const std::string& path,
-                   std::vector<std::pair<std::string, std::string>>& entries,
-                   std::string* error) {
+                   std::vector<std::pair<std::string, std::string>>& entries, std::string* error) {
     if (error)
         error->clear();
     std::ifstream in(path);
@@ -59,14 +58,14 @@ bool load_name_map(const std::string& path,
             continue;  // blank line
         if (!(ss >> netlist)) {
             if (error)
-                *error = "name map:" + std::to_string(lineno) +
-                         ": expected '<rtl_name> <netlist_name>'";
+                *error =
+                    "name map:" + std::to_string(lineno) + ": expected '<rtl_name> <netlist_name>'";
             return false;
         }
         if (ss >> extra) {
             if (error)
-                *error = "name map:" + std::to_string(lineno) +
-                         ": unexpected extra token '" + extra + "'";
+                *error = "name map:" + std::to_string(lineno) + ": unexpected extra token '" +
+                         extra + "'";
             return false;
         }
         entries.emplace_back(rtl, netlist);
@@ -108,9 +107,8 @@ void apply_name_map(ir::Graph& graph,
             continue;
         if (taken.count(target)) {
             if (warnings)
-                warnings->push_back("name map: register '" + node.hier_name +
-                                    "' not renamed to '" + target +
-                                    "': target name already exists");
+                warnings->push_back("name map: register '" + node.hier_name + "' not renamed to '" +
+                                    target + "': target name already exists");
             continue;
         }
         taken.erase(node.hier_name);
@@ -121,8 +119,7 @@ void apply_name_map(ir::Graph& graph,
     if (warnings) {
         for (const auto& e : entries) {
             if (!matched.count(e.second))
-                warnings->push_back("name map: entry '" + e.first + "' -> '" +
-                                    e.second +
+                warnings->push_back("name map: entry '" + e.first + "' -> '" + e.second +
                                     "' matched no registers (stale map?)");
         }
     }

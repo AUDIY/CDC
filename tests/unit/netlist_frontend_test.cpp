@@ -1,11 +1,11 @@
-#include "analysis/analyzer.h"
-#include "frontend/frontend.h"
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <string>
 #include <vector>
+
+#include "analysis/analyzer.h"
+#include "frontend/frontend.h"
 
 namespace opencdc::analysis {
 namespace {
@@ -142,8 +142,7 @@ TEST(NetlistFrontendTest, BitBlastedBusHasNoCrossBitCrossings) {
         ASSERT_FALSE(f.source_reg_name.empty());
         ASSERT_FALSE(f.dest_reg_name.empty());
         EXPECT_EQ(f.source_reg_name.back(), f.dest_reg_name.back())
-            << "cross-bit crossing: " << f.source_reg_name << " -> "
-            << f.dest_reg_name;
+            << "cross-bit crossing: " << f.source_reg_name << " -> " << f.dest_reg_name;
         EXPECT_EQ(f.source_reg_name.front(), 'u');
         EXPECT_EQ(f.dest_reg_name.front(), 'v');
     }

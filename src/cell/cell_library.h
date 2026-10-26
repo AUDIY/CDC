@@ -9,19 +9,19 @@ namespace opencdc::cell {
 // Functional classification of a standard-cell / macro instance. Drives how
 // the netlist frontend maps an instance onto the IR graph.
 enum class CellKind {
-    Dff,        // plain flop: Q = D @ clk
-    DffReset,   // flop with sync/async reset (see reset_async/active_low)
-    DffEnable,  // flop with enable
+    Dff,          // plain flop: Q = D @ clk
+    DffReset,     // flop with sync/async reset (see reset_async/active_low)
+    DffEnable,    // flop with enable
     DffSetReset,  // flop with both set and reset
-    Latch,      // level-sensitive latch
-    Icg,        // integrated clock gate (latch + AND)
-    Buffer,     // non-inverting buffer
-    Inverter,   // inverter
-    Comb,       // generic combinational cell (and/or/xor/mux/...)
-    Isolation,  // low-power isolation cell: combinational, transparent like Buffer
-    Retention,  // retention (save/restore) flop: sequential like a plain Dff
-                // (scan/save ports SI/SE/... are ignored by the adapter)
-    Unknown     // unmapped: treated as opaque combinational, never "safe"
+    Latch,        // level-sensitive latch
+    Icg,          // integrated clock gate (latch + AND)
+    Buffer,       // non-inverting buffer
+    Inverter,     // inverter
+    Comb,         // generic combinational cell (and/or/xor/mux/...)
+    Isolation,    // low-power isolation cell: combinational, transparent like Buffer
+    Retention,    // retention (save/restore) flop: sequential like a plain Dff
+                  // (scan/save ports SI/SE/... are ignored by the adapter)
+    Unknown       // unmapped: treated as opaque combinational, never "safe"
 };
 
 // Cell classification pattern. `pattern` is a glob matched against the cell

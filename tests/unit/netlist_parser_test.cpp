@@ -1,16 +1,18 @@
-#include "frontend/netlist/netlist_lexer.h"
 #include "frontend/netlist/netlist_parser.h"
 
 #include <gtest/gtest.h>
+
+#include "frontend/netlist/netlist_lexer.h"
 
 namespace opencdc::frontend::netlist {
 namespace {
 
 TEST(NetlistLexerTest, TokenizesBasicNetlist) {
-    std::string src = "module top (input clk, output q);\n"
-                      "  wire d;\n"
-                      "  DFFCNQ_X1 reg0 (.CK(clk), .D(d), .Q(q));\n"
-                      "endmodule\n";
+    std::string src =
+        "module top (input clk, output q);\n"
+        "  wire d;\n"
+        "  DFFCNQ_X1 reg0 (.CK(clk), .D(d), .Q(q));\n"
+        "endmodule\n";
     Lexer lex(src, "test.v");
     auto toks = lex.tokenize();
     EXPECT_FALSE(lex.has_errors());
@@ -49,9 +51,10 @@ TEST(NetlistLexerTest, LexesSizedLiterals) {
 }
 
 TEST(NetlistParserTest, ParsesSimpleModule) {
-    std::string src = "module top (input clk, input d, output q);\n"
-                      "  DFFCNQ_X1 reg0 (.CK(clk), .D(d), .Q(q));\n"
-                      "endmodule\n";
+    std::string src =
+        "module top (input clk, input d, output q);\n"
+        "  DFFCNQ_X1 reg0 (.CK(clk), .D(d), .Q(q));\n"
+        "endmodule\n";
     auto res = parse_netlist({src}, {"t.v"}, "top");
     ASSERT_TRUE(res.ok) << (res.errors.empty() ? "" : res.errors.front());
     EXPECT_EQ(res.module.name, "top");
@@ -69,8 +72,9 @@ TEST(NetlistParserTest, ParsesSimpleModule) {
 }
 
 TEST(NetlistParserTest, ParsesAnsiPorts) {
-    std::string src = "module top(input wire clk, output reg q);\n"
-                      "endmodule\n";
+    std::string src =
+        "module top(input wire clk, output reg q);\n"
+        "endmodule\n";
     auto res = parse_netlist({src}, {"t.v"}, "top");
     ASSERT_TRUE(res.ok) << (res.errors.empty() ? "" : res.errors.front());
     ASSERT_EQ(res.module.ports.size(), 2u);
@@ -81,11 +85,12 @@ TEST(NetlistParserTest, ParsesAnsiPorts) {
 }
 
 TEST(NetlistParserTest, ParsesNonAnsiPortsWithBodyDecls) {
-    std::string src = "module top(clk, d, q);\n"
-                      "  input clk;\n"
-                      "  input d;\n"
-                      "  output q;\n"
-                      "endmodule\n";
+    std::string src =
+        "module top(clk, d, q);\n"
+        "  input clk;\n"
+        "  input d;\n"
+        "  output q;\n"
+        "endmodule\n";
     auto res = parse_netlist({src}, {"t.v"}, "top");
     ASSERT_TRUE(res.ok) << (res.errors.empty() ? "" : res.errors.front());
     ASSERT_EQ(res.module.ports.size(), 3u);
@@ -95,13 +100,14 @@ TEST(NetlistParserTest, ParsesNonAnsiPortsWithBodyDecls) {
 }
 
 TEST(NetlistParserTest, ParsesNetsAssignsAndGatePrimitives) {
-    std::string src = "module top(input a, input b, output y, output z);\n"
-                      "  wire n1, n2;\n"
-                      "  assign n1 = a;\n"
-                      "  and g1(n2, a, b);\n"
-                      "  not g2(y, n2);\n"
-                      "  buf g3(z, b);\n"
-                      "endmodule\n";
+    std::string src =
+        "module top(input a, input b, output y, output z);\n"
+        "  wire n1, n2;\n"
+        "  assign n1 = a;\n"
+        "  and g1(n2, a, b);\n"
+        "  not g2(y, n2);\n"
+        "  buf g3(z, b);\n"
+        "endmodule\n";
     auto res = parse_netlist({src}, {"t.v"}, "top");
     ASSERT_TRUE(res.ok) << (res.errors.empty() ? "" : res.errors.front());
     EXPECT_EQ(res.module.nets.size(), 2u);  // n1, n2
@@ -116,9 +122,10 @@ TEST(NetlistParserTest, ParsesNetsAssignsAndGatePrimitives) {
 }
 
 TEST(NetlistParserTest, ParsesMultiInstanceStatement) {
-    std::string src = "module top(input i, output o1, output o2);\n"
-                      "  BUF_X1 b1(o1, i), b2(o2, i);\n"
-                      "endmodule\n";
+    std::string src =
+        "module top(input i, output o1, output o2);\n"
+        "  BUF_X1 b1(o1, i), b2(o2, i);\n"
+        "endmodule\n";
     auto res = parse_netlist({src}, {"t.v"}, "top");
     ASSERT_TRUE(res.ok) << (res.errors.empty() ? "" : res.errors.front());
     ASSERT_EQ(res.module.instances.size(), 2u);
@@ -127,11 +134,12 @@ TEST(NetlistParserTest, ParsesMultiInstanceStatement) {
 }
 
 TEST(NetlistParserTest, ParsesBitSelectAndConstant) {
-    std::string src = "module top(input [3:0] bus, output z);\n"
-                      "  wire n;\n"
-                      "  assign n = bus[2];\n"
-                      "  assign z = 1'b0;\n"
-                      "endmodule\n";
+    std::string src =
+        "module top(input [3:0] bus, output z);\n"
+        "  wire n;\n"
+        "  assign n = bus[2];\n"
+        "  assign z = 1'b0;\n"
+        "endmodule\n";
     auto res = parse_netlist({src}, {"t.v"}, "top");
     ASSERT_TRUE(res.ok) << (res.errors.empty() ? "" : res.errors.front());
     ASSERT_EQ(res.module.ports.size(), 2u);
@@ -154,13 +162,14 @@ TEST(NetlistParserTest, ParsesBitSelectAndConstant) {
 }
 
 TEST(NetlistParserTest, SkipsSpecifyAndDirectives) {
-    std::string src = "`timescale 1ns/1ps\n"
-                      "module top(input a, output y);\n"
-                      "  specify\n"
-                      "    (a *> y) = 1;\n"
-                      "  endspecify\n"
-                      "  buf g0(y, a);\n"
-                      "endmodule\n";
+    std::string src =
+        "`timescale 1ns/1ps\n"
+        "module top(input a, output y);\n"
+        "  specify\n"
+        "    (a *> y) = 1;\n"
+        "  endspecify\n"
+        "  buf g0(y, a);\n"
+        "endmodule\n";
     auto res = parse_netlist({src}, {"t.v"}, "top");
     ASSERT_TRUE(res.ok) << (res.errors.empty() ? "" : res.errors.front());
     ASSERT_EQ(res.module.instances.size(), 1u);
@@ -183,9 +192,10 @@ TEST(NetlistParserTest, AutoSelectsSingleModule) {
 }
 
 TEST(NetlistParserTest, ErrorsOnBehavioralBlock) {
-    std::string src = "module top(input clk, output reg q);\n"
-                      "  always @(posedge clk) q <= ~q;\n"
-                      "endmodule\n";
+    std::string src =
+        "module top(input clk, output reg q);\n"
+        "  always @(posedge clk) q <= ~q;\n"
+        "endmodule\n";
     auto res = parse_netlist({src}, {"t.v"}, "top");
     // Should still parse (behavioral block skipped with a warning), not crash.
     // Whether ok depends on the always being skipped cleanly.

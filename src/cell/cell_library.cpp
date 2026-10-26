@@ -137,8 +137,8 @@ CellLibrary CellLibrary::with_defaults() {
     lib.add(mk("DFF*", CellKind::Dff));
     lib.add(mk("DFXP*", CellKind::Dff));
     lib.add(mk("SDFF*", CellKind::Dff));
-    lib.add(mk("DF*N*", CellKind::DffReset));   // DFCN*, DFCNQ*, DFDN* → reset
-    lib.add(mk("DF*P*", CellKind::DffReset));   // preset variants
+    lib.add(mk("DF*N*", CellKind::DffReset));  // DFCN*, DFCNQ*, DFDN* → reset
+    lib.add(mk("DF*P*", CellKind::DffReset));  // preset variants
     lib.add(mk("DFF*EN*", CellKind::DffEnable));
     lib.add(mk("SDFF*EN*", CellKind::DffEnable));
     lib.add(mk("DLATCH*", CellKind::Latch));

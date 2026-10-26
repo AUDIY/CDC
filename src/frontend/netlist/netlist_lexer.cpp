@@ -119,8 +119,8 @@ Token Lexer::lex_number() {
     t.col = col_;
     size_t start = pos_;
     // [size]'[s]base digit...  e.g. 1'bz, 4'hF, 32'sd5. Also plain integers.
-    while (!at_end() && (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '\'' ||
-                         peek() == '_')) {
+    while (!at_end() &&
+           (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '\'' || peek() == '_')) {
         advance();
     }
     t.text = src_.substr(start, pos_ - start);

@@ -32,16 +32,13 @@ namespace opencdc::frontend::netlist {
 // warn. Flat netlists never copy anything: the caller skips this pass when
 // references_submodules() returns false.
 
-bool references_submodules(const NetlistModule& top,
-                           const std::vector<NetlistModule>& submodules);
+bool references_submodules(const NetlistModule& top, const std::vector<NetlistModule>& submodules);
 
 // Produce the flattened module. Returns false and fills `errors` on
 // instantiation cycles or hierarchy-depth overflow. `submodules` must NOT
 // contain `top` itself.
-bool flatten_hierarchy(const NetlistModule& top,
-                       const std::vector<NetlistModule>& submodules,
-                       NetlistModule& out,
-                       std::vector<std::string>& errors,
+bool flatten_hierarchy(const NetlistModule& top, const std::vector<NetlistModule>& submodules,
+                       NetlistModule& out, std::vector<std::string>& errors,
                        std::vector<std::string>& warnings);
 
 }  // namespace opencdc::frontend::netlist

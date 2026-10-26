@@ -65,9 +65,8 @@ std::string group_key(const Node& n, const std::string& base) {
     k.push_back('\x1f');
     k += n.reset_signal;
     k.push_back('\x1f');
-    k.push_back(static_cast<char>(
-        (n.reset_pol == ir::ResetPolarity::ActiveLow ? 'l' : 'h') +
-        (n.is_async_reset ? 0x10 : 0) + (n.is_latch ? 0x40 : 0)));
+    k.push_back(static_cast<char>((n.reset_pol == ir::ResetPolarity::ActiveLow ? 'l' : 'h') +
+                                  (n.is_async_reset ? 0x10 : 0) + (n.is_latch ? 0x40 : 0)));
     k.push_back('\x1f');
     k.push_back(n.is_isolation_cell ? 'i' : '-');
     k.push_back('\x1f');
@@ -77,8 +76,8 @@ std::string group_key(const Node& n, const std::string& base) {
 
 struct MergeCandidate {
     std::string base;
-    long width = 0;                       // max index + 1
-    std::vector<uint64_t> member_ids;     // bit flops to fold in
+    long width = 0;                    // max index + 1
+    std::vector<uint64_t> member_ids;  // bit flops to fold in
 };
 
 // Build the merge plan (returned in deterministic base-name order). Only
@@ -88,9 +87,7 @@ std::map<std::string, MergeCandidate> collect_groups(const ir::Graph& graph) {
     // base -> (key -> members); several clock/reset variants of one base are
     // separate candidates, and only one wins the shared merged name (the
     // rest are rejected later on collision, deterministically by map order).
-    std::map<std::string,
-             std::map<std::string, std::map<long, uint64_t>>>
-        candidates;
+    std::map<std::string, std::map<std::string, std::map<long, uint64_t>>> candidates;
 
     for (const auto& node : graph.nodes()) {
         if (node.kind != NodeKind::Register || node.width != 1)
@@ -141,19 +138,16 @@ MergeCandidate* apply_group(ir::Graph& graph, MergeCandidate& mc,
         // A whole-bus net/port/other register already owns the merged name
         // (cannot reuse aliased node identity across node kinds). Leave the
         // group bit-blasted and say so.
-        warnings.push_back(
-            "netlist: skipped bus regrouping of '" + mc.base +
-            "[...]' register flops; node name '" + mc.base +
-            "' is already in use");
+        warnings.push_back("netlist: skipped bus regrouping of '" + mc.base +
+                           "[...]' register flops; node name '" + mc.base + "' is already in use");
         return nullptr;
     }
 
-    uint64_t merged_id = graph.add_register(
-        mc.base, first->clock_domain, static_cast<uint32_t>(mc.width),
-        first->loc, first->module_path, first->module_type);
+    uint64_t merged_id =
+        graph.add_register(mc.base, first->clock_domain, static_cast<uint32_t>(mc.width),
+                           first->loc, first->module_path, first->module_type);
     if (merged_id == 0) {
-        warnings.push_back("netlist: graph limit hit while regrouping '" +
-                           mc.base + "[...]'");
+        warnings.push_back("netlist: graph limit hit while regrouping '" + mc.base + "[...]'");
         return nullptr;
     }
     Node* merged = graph.find_node_mutable(merged_id);
@@ -178,12 +172,9 @@ MergeCandidate* apply_group(ir::Graph& graph, MergeCandidate& mc,
             have_first = true;
         }
         merged->is_gray_coded = merged->is_gray_coded || m->is_gray_coded;
-        merged->is_handshake_signal =
-            merged->is_handshake_signal || m->is_handshake_signal;
-        merged->is_async_fifo_ptr =
-            merged->is_async_fifo_ptr || m->is_async_fifo_ptr;
-        merged->is_control_signal =
-            merged->is_control_signal || m->is_control_signal;
+        merged->is_handshake_signal = merged->is_handshake_signal || m->is_handshake_signal;
+        merged->is_async_fifo_ptr = merged->is_async_fifo_ptr || m->is_async_fifo_ptr;
+        merged->is_control_signal = merged->is_control_signal || m->is_control_signal;
     }
 
     // Re-point edges. Register incident edges are always Data (the builder
@@ -294,8 +285,7 @@ size_t regroup_buses(ir::Graph& graph, std::vector<std::string>& warnings) {
     std::vector<uint64_t> dead;
     size_t merged_bits = 0;
     for (auto& [key, mc] : plan) {
-        std::unordered_set<uint64_t> member_set(mc.member_ids.begin(),
-                                                mc.member_ids.end());
+        std::unordered_set<uint64_t> member_set(mc.member_ids.begin(), mc.member_ids.end());
         if (!apply_group(graph, mc, member_set, warnings))
             continue;
         for (uint64_t id : mc.member_ids) {
@@ -348,8 +338,7 @@ size_t annotate_gray_registers(ir::Graph& graph) {
         // except at most the folded boundary bit, and all contributed bases
         // agree on one common bus. Anything wider in shape — parity trees,
         // adders, mixed-bus XOR chains — is rejected here.
-        if (all_valid && xor_bits >= 1 && xor_bits >= members_n - 1 &&
-            bases.size() == 1) {
+        if (all_valid && xor_bits >= 1 && xor_bits >= members_n - 1 && bases.size() == 1) {
             for (uint64_t id : members) {
                 if (Node* n = graph.find_node_mutable(id))
                     n->is_gray_coded = true;

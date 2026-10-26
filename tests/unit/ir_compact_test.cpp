@@ -1,10 +1,9 @@
-#include "ir/compact.h"
-
-#include "ir/graph.h"
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
+
+#include "ir/compact.h"
+#include "ir/graph.h"
 
 namespace opencdc::ir {
 namespace {
@@ -69,8 +68,7 @@ TEST(CompactTest, PreservesClockBufferAndResetStructure) {
     EXPECT_NE(g.find_node_by_name("clk"), nullptr);
     EXPECT_NE(g.find_node_by_name("clkbuf"), nullptr)
         << "clock-path buffer must not be compacted away";
-    EXPECT_NE(g.find_node_by_name("clkn"), nullptr)
-        << "clock-domain anchor net must be preserved";
+    EXPECT_NE(g.find_node_by_name("clkn"), nullptr) << "clock-domain anchor net must be preserved";
     // Only the data net was removed.
     EXPECT_EQ(removed, 1u);
     EXPECT_EQ(g.find_node_by_name("dn"), nullptr);

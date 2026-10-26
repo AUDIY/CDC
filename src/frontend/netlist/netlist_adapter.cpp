@@ -9,8 +9,8 @@
 #include "cell/liberty.h"
 #include "clock/resolve.h"
 #include "frontend/netlist/flatten.h"
-#include "frontend/netlist/netlist_parser.h"
 #include "frontend/netlist/name_map.h"
+#include "frontend/netlist/netlist_parser.h"
 #include "frontend/netlist/regroup.h"
 #include "ir/compact.h"
 
@@ -23,14 +23,14 @@ using ir::LogicType;
 using ir::NodeKind;
 using netlist::Conn;
 using netlist::Instance;
-using netlist::NetRef;
 using netlist::NetlistModule;
+using netlist::NetRef;
 using netlist::PortDir;
 
 bool is_gate_primitive(const std::string& cell_type) {
     static const std::unordered_set<std::string> kGates = {
-        "and",  "or",   "not",  "nand", "nor",  "xor", "xnor", "buf",
-        "bufif0", "bufif1", "notif0", "notif1", "pullup", "pulldown"};
+        "and", "or",     "not",    "nand",   "nor",    "xor",    "xnor",
+        "buf", "bufif0", "bufif1", "notif0", "notif1", "pullup", "pulldown"};
     return kGates.count(cell_type) > 0;
 }
 
@@ -71,7 +71,7 @@ const std::vector<std::string>& enable_pins() {
     return p;
 }
 const std::vector<std::string>& reset_pins() {
-    static const std::vector<std::string> p = {"R",  "RN",  "RST",   "RESET", "CDN",
+    static const std::vector<std::string> p = {"R",   "RN",  "RST",     "RESET", "CDN",
                                                "CLR", "SRN", "RESET_B", "RSTN"};
     return p;
 }
@@ -145,8 +145,11 @@ class GraphBuilder {
    public:
     GraphBuilder(ir::Graph& graph, const NetlistModule& mod, const cell::CellLibrary& lib,
                  std::string top, std::string filename)
-        : graph_(graph), mod_(mod), lib_(lib), top_(std::move(top)), filename_(std::move(filename)) {
-    }
+        : graph_(graph),
+          mod_(mod),
+          lib_(lib),
+          top_(std::move(top)),
+          filename_(std::move(filename)) {}
 
     void build(std::vector<std::string>& warnings);
 
@@ -209,7 +212,7 @@ class GraphBuilder {
     std::string filename_;
 
     std::unordered_set<std::string> ports_;
-    std::unordered_map<std::string, std::string> parent_;   // union-find
+    std::unordered_map<std::string, std::string> parent_;     // union-find
     std::unordered_map<std::string, std::string> port_feed_;  // port -> driver net
     std::unordered_map<std::string, uint32_t> net_width_;
     std::unordered_map<std::string, uint64_t> port_nodes_;
@@ -418,7 +421,8 @@ void GraphBuilder::process_sequential(const Instance& inst, const cell::CellDef*
         if (n) {
             n->reset_signal = find(signal_of(rst->net));
             bool active_low = def && def->reset_active_low;
-            n->reset_pol = active_low ? ir::ResetPolarity::ActiveLow : ir::ResetPolarity::ActiveHigh;
+            n->reset_pol =
+                active_low ? ir::ResetPolarity::ActiveLow : ir::ResetPolarity::ActiveHigh;
             n->is_async_reset = def && def->reset_async;
         }
     }
@@ -531,25 +535,19 @@ void GraphBuilder::process_comb(const Instance& inst, const cell::CellDef* def, 
         // library muxes: D1/I1 = select-1 input, D0/I0 = select-0 input) are
         // mapped into that order so RTL and netlist resolve muxed clocks to
         // the same root. Unrecognized pin names keep connection order.
-        size_t sel = named_inputs.size(), t = named_inputs.size(),
-               f = named_inputs.size();
+        size_t sel = named_inputs.size(), t = named_inputs.size(), f = named_inputs.size();
         for (size_t i = 0; i < named_inputs.size(); ++i) {
             const std::string& pin = named_inputs[i].first;
-            if (sel == named_inputs.size() &&
-                (pin == "S" || pin == "SEL" || pin == "SELECT")) {
+            if (sel == named_inputs.size() && (pin == "S" || pin == "SEL" || pin == "SELECT")) {
                 sel = i;
-            } else if (f == named_inputs.size() &&
-                       (pin == "A" || pin == "D0" || pin == "I0")) {
+            } else if (f == named_inputs.size() && (pin == "A" || pin == "D0" || pin == "I0")) {
                 f = i;  // select-0 input
-            } else if (t == named_inputs.size() &&
-                       (pin == "B" || pin == "D1" || pin == "I1")) {
+            } else if (t == named_inputs.size() && (pin == "B" || pin == "D1" || pin == "I1")) {
                 t = i;  // select-1 input
             }
         }
-        if (sel < named_inputs.size() && t < named_inputs.size() &&
-            f < named_inputs.size()) {
-            inputs = {named_inputs[sel].second, named_inputs[t].second,
-                      named_inputs[f].second};
+        if (sel < named_inputs.size() && t < named_inputs.size() && f < named_inputs.size()) {
+            inputs = {named_inputs[sel].second, named_inputs[t].second, named_inputs[f].second};
         }
     }
 
@@ -590,8 +588,8 @@ void GraphBuilder::process_gate_primitive(const Instance& inst,
                 inputs.push_back(n);
         }
     }
-    uint64_t node = graph_.add_combinational(inst.inst_name, lt, inputs, /*width=*/1,
-                                             loc(inst.line), "", g);
+    uint64_t node =
+        graph_.add_combinational(inst.inst_name, lt, inputs, /*width=*/1, loc(inst.line), "", g);
     if (node && out.kind == NetRef::Kind::Net) {
         uint64_t on = get_node(out);
         if (on)
@@ -641,8 +639,7 @@ FrontendResult NetlistAdapter::elaborate(const std::vector<std::string>& files,
     NetlistModule flat;
     if (references_submodules(parsed.module, parsed.modules)) {
         std::vector<std::string> hier_errors;
-        if (!flatten_hierarchy(parsed.module, parsed.modules, flat, hier_errors,
-                               result.warnings)) {
+        if (!flatten_hierarchy(parsed.module, parsed.modules, flat, hier_errors, result.warnings)) {
             for (auto& e : hier_errors)
                 result.errors.push_back(e);
             return result;

@@ -174,8 +174,7 @@ struct Elaborator {
 
 }  // namespace
 
-bool references_submodules(const NetlistModule& top,
-                           const std::vector<NetlistModule>& submodules) {
+bool references_submodules(const NetlistModule& top, const std::vector<NetlistModule>& submodules) {
     if (submodules.empty())
         return false;
     // The top module joins the lookup map so an instance that refers back to
@@ -191,10 +190,8 @@ bool references_submodules(const NetlistModule& top,
     return false;
 }
 
-bool flatten_hierarchy(const NetlistModule& top,
-                       const std::vector<NetlistModule>& submodules,
-                       NetlistModule& out,
-                       std::vector<std::string>& errors,
+bool flatten_hierarchy(const NetlistModule& top, const std::vector<NetlistModule>& submodules,
+                       NetlistModule& out, std::vector<std::string>& errors,
                        std::vector<std::string>& warnings) {
     out = NetlistModule{};
     out.name = top.name;
