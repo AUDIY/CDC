@@ -1,106 +1,112 @@
 # OpenCDC
 
-Open-source static analysis tool for detecting Clock Domain Crossing (CDC) issues in RTL designs.
+Open-source **static** Clock Domain Crossing (CDC) analyzer for Verilog and
+SystemVerilog. It walks an IR graph of registers and clocks and reports
+structural crossings. It is **not** a formal CDC tool (SpyGlass CDC, Questa
+CDC): it does not prove protocol correctness or the absence of metastability.
 
-## Features
+Accuracy of detection (false positives / false negatives on real SoCs) is
+the product. Surrounding features (HTML, SARIF, LSP, Python) are secondary.
 
-- Verilog/SystemVerilog parsing via [slang](https://github.com/MikePopoloski/slang)
-- Verilog-2001 (`.v`) and SystemVerilog (`.sv`) support
-- Gate-level **netlist analysis** (`--input-type netlist`): a separate structural
-  frontend parses post-synthesis `.v` and routes it through the same analyzer,
-  with YAML cell maps for cell/pin classification ([docs/netlist.md](docs/netlist.md))
-- Clock domain inference from explicit clock ports
-- Gated and muxed clock resolution to root clocks
-- Register-to-register CDC crossing detection
-- 2FF/3FF synchronizer recognition
-- Multi-bit synchronizer misuse detection
-- Reconvergence hazard detection
-- Semantic pattern recognition (gray-code, async FIFO pointers, handshakes)
-- Reset domain analysis (CDC009)
-- Daisy-chain multi-domain tracking (CDC008)
-- 13 configurable rules (CDC001-CDC013)
-- False-path support (CLI, config, and SDC/YAML clock constraints)
-- Waiver workflow with substring/wildcard/regex matching, auditable trail and expiry dates
-- Baseline trend analysis (save/compare findings across runs)
-- JSON, text, SARIF, and interactive HTML reports
-- LSP server for IDE integration (`opencdc lsp`, UNIX)
-- Methodology profiles (`--profile asic_signoff|strict|fpga|...`) and `--signoff` exit codes
-- Python bindings (`BUILD_PYTHON_BINDINGS=ON`)
-- Machine-readable output and CI-friendly exit codes
+## What is verified vs guessed
+
+| Proven structurally | Heuristic / shape match | Not covered |
+|---|---|---|
+| Register-to-register path between different root clocks | Gray-code encoder of the form `x ^ (x >> 1)` | Formal handshake / FIFO protocol |
+| Single-bit 2FF / 3FF / N-stage synchronizer chain at the destination | Async-FIFO pointer *shape* (gray pointers + synced r/w) | Payload data guarded by a handshake |
+| ICG as `AND(clk, en)` (RTL) and library ICG cells (netlist) | Handshake *shape* (valid/ready or req/ack pair only) | Recirculation-mux / mux-feedback synchronizers |
+| False paths and multicycle paths **if declared** (SDC / YAML) | Gated / muxed clocks via explicit `assign` | Timing / metastability proof |
+| Muxed-clock and gated-clock *presence* on a crossing | Generated / divided clocks folded into the parent root | Hierarchical instance-output → instance-input tracing |
+
+Details: [docs/what-we-can-prove.md](docs/what-we-can-prove.md).
+
+## Known limitations
+
+These are measured gaps, not a wish list. Evidence lives in
+`benchmarks/expected/manifest.json` (`known_gaps`) and the corpus fixtures.
+
+- **Wide 2FF chains** (e.g. gray async-FIFO pointer syncs) are not classified
+  as synchronizers. Only `width == 1` chains downgrade CDC001 to
+  `info` / `verified_safe`. Correct FIFOs still report CDC001 error.
+- **Handshake payload** is not covered. A valid/ready (or req/ack) pair can
+  be recognized; the data bus it guards still fires CDC001 + CDC002.
+- **Hierarchical FN**: a register inside one child instance driving another
+  child instance through a parent wire is not traced.
+- **CDC006** (comb between sync stages) is effectively unreachable on
+  single-driver RTL — the bug surfaces as CDC001 instead.
+- **Generated / divided clocks** are folded into the parent root domain. No
+  crossing is reported; phase relationship is **not** verified.
+- **Clock gating / muxing** is recognized on explicit `assign` (and netlist
+  ICG/mux cells). Net-initializer form is not.
+- **Reset synchronizers**: a proper 2FF under a synchronized-but-different
+  reset still reports CDC009.
+- **No recirculation-mux synchronizer** recognition.
+- **No formal verification** of gray, FIFO, or handshake protocols.
+- OpenCDC has **not** been published against Ibex / OpenTitan / PULP with
+  a manual FP/FN review. Fixture F1 on the in-tree corpus is not a substitute.
+
+CDC005 (muxed clock without reset) and CDC013 (unknown-value propagation)
+are **methodology / quality** checks, not core CDC. Default severity is
+`warning`. Disable them if they are noise:
+
+```bash
+opencdc check design.sv --top top --disable-rule CDC005 --disable-rule CDC013
+```
+
+## Example output
+
+Text report from a real run (`--format text --signoff --color always`):
+
+![OpenCDC terminal report](docs/images/opencdc_terminal_report.png)
+
+A netlist run is in [docs/images/opencdc_netlist_terminal_report.png](docs/images/opencdc_netlist_terminal_report.png).
+JSON, SARIF, and interactive HTML are also available (`--format json|sarif|html`).
 
 ## Building
 
-### Prerequisites
+**Prerequisites:** C++20 compiler (GCC 11+ or Clang 14+), CMake 3.28+, Git.
 
-- C++20 compiler (GCC 11+ or Clang 14+)
-- CMake 3.28+
-- Git (for FetchContent to download slang, yaml-cpp, and Google Test)
-
-### Build
+Dependencies are fetched and **pinned**: slang `v8.0`, yaml-cpp `0.8.0`,
+nlohmann/json `v3.11.3` (see `CMakeLists.txt`).
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
-```
-
-### Test
-
-```bash
 ctest --test-dir build --output-on-failure
 ```
 
 ## Usage
 
 ```bash
-# Basic check
+# Basic check (JSON on stdout)
 opencdc check design.sv --top top_module
 
-# Gate-level netlist (auto-detected; force + cell map if needed)
+# Human-readable report
+opencdc check design.sv --top top --format text --signoff --color auto
+
+# Gate-level netlist
 opencdc check synthesized.v --top top --input-type netlist --cell-map cells.yaml
 
-# JSON output to file
-opencdc check design.sv --top top --format json --out report.json
-
-# With config file
-opencdc check design.sv --top top --config opencdc.yaml
-
-# With waivers
-opencdc check design.sv --top top --waiver waivers.txt
-
-# Include dirs and macros
-opencdc check design.sv --top top --incdir rtl/include --define ENABLE_CDC
-
-# Disable a rule
-opencdc check design.sv --top top --disable-rule CDC001
-
-# Override severity
-opencdc check design.sv --top top --severity CDC003=error
-
-# False path (suppress specific crossing)
+# Config, waivers, false paths
+opencdc check design.sv --top top --config opencdc.yaml --waiver waivers.txt
 opencdc check design.sv --top top --false-path src_reg:meta_reg
 
-# Parallel analysis (4 threads)
-opencdc check design.sv --top top --jobs 4
-
-# Save baseline for trend comparison
-opencdc check design.sv --top top --save-baseline baseline.json
-
-# Compare against saved baseline
-opencdc check design.sv --top top --compare-baseline baseline.json
-
-# Start LSP server
-opencdc lsp --top top --port 2087
+# Includes / macros / jobs
+opencdc check design.sv --top top --incdir rtl/include --define ENABLE_CDC --jobs 4
 ```
+
+See `opencdc check --help` for the full flag list (`--format`, `--out`,
+`--profile`, `--constraints`, `--liberty`, `--name-map`, `--save-baseline`, …).
 
 ## Rules
 
 | ID | Name | Severity | Description |
 |---|---|---|---|
 | CDC001 | unsynchronized_crossing | error (info if verified 2FF/3FF) | Register drives register across domains without synchronization |
-| CDC002 | multi_bit_crossing | error | Multi-bit bus crosses domains without gray-code or handshake |
+| CDC002 | multi_bit_crossing | error | Multi-bit bus crosses domains without gray-code or handshake *shape* |
 | CDC003 | reconvergence_hazard | warning | Multiple paths from same source reconverge in destination domain |
 | CDC004 | gated_clock_crossing | warning | Register clocked by gated clock crosses to another domain |
-| CDC005 | muxed_clock_no_reset | warning | Register clocked by muxed clock without reset |
+| CDC005 | muxed_clock_no_reset | warning | Methodology: muxed clock and no reset on a CDC path |
 | CDC006 | combinational_between_sync | error | Combinational logic between synchronizer stages |
 | CDC007 | missing_reset | info | CDC register without reset signal |
 | CDC008 | multi_domain_daisy_chain | warning | Signal crosses 3+ clock domains in daisy chain |
@@ -108,18 +114,21 @@ opencdc lsp --top top --port 2087
 | CDC010 | path_traversal_truncated | warning | Analysis limits may have hidden additional crossings |
 | CDC011 | pulse_crossing | warning | Pulse synchronizer without a proper 2FF chain |
 | CDC012 | toggle_crossing | warning | Toggle synchronizer without a proper 2FF chain |
-| CDC013 | unknown_propagation | warning | Uncertain value propagated through an unsynchronized path |
+| CDC013 | unknown_propagation | warning | Methodology: uncertain value on an unsynchronized path |
 
-See [docs/rules.md](docs/rules.md) for detailed documentation.
+Full reference: [docs/rules.md](docs/rules.md). Semantics vs other rules:
+[docs/rule-semantics.md](docs/rule-semantics.md).
 
-## Config File
+## Config file
 
 ```yaml
 rules:
   CDC001:
     enabled: true
     severity: error
-  CDC003:
+  CDC005:
+    enabled: false
+  CDC013:
     enabled: false
 
 waivers:
@@ -134,35 +143,39 @@ false_paths:
     dest: mod.meta_reg
 
 output:
-  format: json
-  file: report.json
-  suppress_reset_crossings: true
+  format: text
+  file: report.txt
 ```
 
-## Exit Codes
+## Exit codes
 
 | Code | Meaning |
 |------|---------|
 | 0 | No unsuppressed error findings (or `--signoff` Pass / PassWithWaivers) |
 | 1 | Unsuppressed error findings (or `--signoff` Fail / Incomplete / Error) |
-| 2 | User/configuration/input error |
+| 2 | User / configuration / input error |
 | 3 | Internal tool failure |
 
-## Waivers
+## Other capabilities
 
-See [docs/waivers.md](docs/waivers.md) for waiver format and usage.
+These exist and are tested; they do not substitute for detection accuracy.
 
-## CI Integration
-
-See [docs/ci.md](docs/ci.md) for GitHub Actions, GitLab CI, and best practices.
+- Gate-level **netlist** frontend (`--input-type netlist`) — [docs/netlist.md](docs/netlist.md)
+- Waivers (substring / wildcard / regex) — [docs/waivers.md](docs/waivers.md)
+- Baseline trend (`--save-baseline` / `--compare-baseline`)
+- JSON, text, SARIF, interactive HTML reports
+- LSP server (`opencdc lsp`)
+- Methodology profiles (`--profile asic_signoff|strict|fpga|…`)
+- Optional Python bindings (`BUILD_PYTHON_BINDINGS=ON`)
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — pipeline and module design
-- [Netlist Analysis](docs/netlist.md) — gate-level netlist support and cell maps
-- [Rules](docs/rules.md) — rule reference and configuration
-- [Waivers](docs/waivers.md) — waiver format and usage
-- [CI Integration](docs/ci.md) — pipeline integration examples
+- [What we can prove](docs/what-we-can-prove.md) — verified vs inferred vs unknown
+- [Architecture](docs/architecture.md)
+- [Netlist analysis](docs/netlist.md)
+- [Rules](docs/rules.md) · [Rule semantics](docs/rule-semantics.md)
+- [Waivers](docs/waivers.md)
+- [CI integration](docs/ci.md)
 
 ## Contributing
 
@@ -171,8 +184,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Contact
 
 - Repository: [https://github.com/Ayoubbelguellaoui/CDC](https://github.com/Ayoubbelguellaoui/CDC)
+  (GitHub name is `CDC`; the project and binary are `opencdc`)
 - Maintainer: Ayoub Belguellaoui — [belguellaoui01@gmail.com](mailto:belguellaoui01@gmail.com)
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) for details.
+Apache License 2.0. See [LICENSE](LICENSE).

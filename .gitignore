@@ -23,9 +23,10 @@ compile_commands.json
 /opencdc_unit_tests
 /opencdc_regression_tests
 
-# IDE
+# IDE / AI-assistant local config (do not commit)
 .vscode/
 .idea/
+.commandcode/
 *.swp
 *.swo
 *~

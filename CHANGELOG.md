@@ -4,6 +4,7 @@ All notable changes to OpenCDC will be documented in this file.
 **[Unreleased]**
 
 **Changed**
+- **README honesty pass**: lead with static-vs-formal scope, a verified-vs-guessed table, measured known limitations (from `benchmarks/expected/manifest.json` `known_gaps`), and a real terminal screenshot. CDC005/CDC013 called out as optional methodology checks. Features list moved below usage. `.commandcode/` added to `.gitignore`.
 - **Professional text report redesign**: the text report is now sectioned and review-friendly — an `OpenCDC vX.Y.Z — CDC static analysis` header (top module, input type, input files), a `Findings` section with severity-grouped (ERROR → WARNING → INFO) numbered entries that show uppercase severity labels, rule ids **and rule names**, crossings, reasons, `file:line:col` locations and status tags, a human `Summary` block (status/findings/waived/suppressed/mc_suppressed), and a `Signoff` section under `--signoff`. The machine-readable `analysis_status=...` line still goes to stderr unchanged.
 - **ANSI colorization + `--color auto|always|never`**: text reports colorize severity (red/yellow/blue), section headers (cyan), signoff verdicts (green/red) and dim metadata. `auto` enables color only on a TTY, never into `--out` files, and honors `NO_COLOR`.
 - **JSON CLI output includes `coverage` and `signoff`**: the CLI now emits the full JSON envelope (the previously unwired reporter overload); keys are additive, existing consumers are unaffected.
