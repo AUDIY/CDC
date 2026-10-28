@@ -72,10 +72,14 @@ TEST_F(ReportTest, TextFormat) {
     reporter.report_text(findings, os);
 
     std::string out = os.str();
-    EXPECT_NE(out.find("error [CDC001]"), std::string::npos);
+    EXPECT_NE(out.find("ERROR"), std::string::npos);
+    EXPECT_NE(out.find("CDC001"), std::string::npos);
+    EXPECT_NE(out.find("test_rule"), std::string::npos);
     EXPECT_NE(out.find("mod.src"), std::string::npos);
     EXPECT_NE(out.find("-> mod.dst"), std::string::npos);
-    EXPECT_NE(out.find("at test.sv:10"), std::string::npos);
+    EXPECT_NE(out.find("at test.sv:10:5"), std::string::npos);
+    EXPECT_NE(out.find("── Findings"), std::string::npos);
+    EXPECT_NE(out.find("── Summary"), std::string::npos);
 }
 
 TEST_F(ReportTest, TextWaivedFindingMarked) {
@@ -267,7 +271,102 @@ TEST_F(ReportTest, TextReportShowsAnalysisStatus) {
     reporter.report_text(findings, os, "complete");
 
     std::string out = os.str();
-    EXPECT_NE(out.find("Analysis status: complete"), std::string::npos);
+    EXPECT_NE(out.find("── Summary"), std::string::npos);
+    EXPECT_NE(out.find("status         complete"), std::string::npos);
+}
+
+TEST_F(ReportTest, TextHeaderContext) {
+    std::vector<opencdc::cdc::Finding> findings;
+    opencdc::report::ReportContext ctx;
+    ctx.version = "9.9.9";
+    ctx.top_module = "my_top";
+    ctx.input_files = {"a.sv", "b.sv"};
+    ctx.input_type = "netlist";
+
+    std::ostringstream os;
+    reporter.report_text(findings, os, ctx);
+
+    std::string out = os.str();
+    EXPECT_NE(out.find("OpenCDC v9.9.9"), std::string::npos);
+    EXPECT_NE(out.find("Top: my_top"), std::string::npos);
+    EXPECT_NE(out.find("Input: netlist"), std::string::npos);
+    EXPECT_NE(out.find("Files: a.sv b.sv"), std::string::npos);
+    EXPECT_NE(out.find("No CDC findings."), std::string::npos);
+}
+
+TEST_F(ReportTest, TextSignoffSection) {
+    std::vector<opencdc::cdc::Finding> findings;
+    opencdc::report::ReportContext ctx;
+    ctx.show_signoff = true;
+    ctx.signoff.status = opencdc::analysis::SignoffStatus::Fail;
+    ctx.signoff.reason = "1 unsuppressed error(s) found";
+
+    std::ostringstream os;
+    reporter.report_text(findings, os, ctx);
+
+    std::string out = os.str();
+    EXPECT_NE(out.find("── Signoff"), std::string::npos);
+    EXPECT_NE(out.find("FAIL — 1 unsuppressed error(s) found"), std::string::npos);
+}
+
+TEST_F(ReportTest, TextColorOffByDefault) {
+    auto f = make_finding("CDC001", "error", "src", "dst");
+    std::vector<opencdc::cdc::Finding> findings = {f};
+
+    std::ostringstream os;
+    reporter.report_text(findings, os);
+
+    EXPECT_EQ(os.str().find('\033'), std::string::npos);
+}
+
+TEST_F(ReportTest, TextColorAlwaysEmitsAnsi) {
+    auto f = make_finding("CDC001", "error", "src", "dst");
+    std::vector<opencdc::cdc::Finding> findings = {f};
+    reporter.set_color(true);
+
+    std::ostringstream os;
+    reporter.report_text(findings, os);
+
+    std::string out = os.str();
+    EXPECT_NE(out.find("\033[1;31mERROR"), std::string::npos);
+    EXPECT_NE(out.find("\033[0m"), std::string::npos);
+}
+
+TEST_F(ReportTest, SeverityGroupingPutsErrorsFirst) {
+    auto info = make_finding("CDC007", "info", "a.sv_reg", "b.sv_reg");
+    info.source_loc = {"a.sv", 5, 1};
+    auto err = make_finding("CDC001", "error", "z.sv_reg", "y.sv_reg");
+    err.source_loc = {"z.sv", 50, 1};
+    std::vector<opencdc::cdc::Finding> findings = {info, err};
+
+    std::ostringstream os;
+    reporter.report_text(findings, os);
+
+    std::string out = os.str();
+    size_t err_pos = out.find("ERROR");
+    size_t info_pos = out.find("INFO");
+    ASSERT_NE(err_pos, std::string::npos);
+    ASSERT_NE(info_pos, std::string::npos);
+    EXPECT_LT(err_pos, info_pos);
+}
+
+TEST_F(ReportTest, JsonCliOverloadIncludesCoverageAndSignoff) {
+    auto f = make_finding("CDC001", "error", "src", "dst");
+    opencdc::analysis::CoverageResult coverage;
+    coverage.counts.total = 1;
+    coverage.counts.errors = 1;
+    opencdc::analysis::SignoffResult signoff;
+    signoff.status = opencdc::analysis::SignoffStatus::Fail;
+    signoff.reason = "1 unsuppressed error(s) found";
+
+    std::ostringstream os;
+    reporter.report_json({f}, coverage, signoff, os);
+
+    std::string out = os.str();
+    EXPECT_NE(out.find("\"coverage\""), std::string::npos);
+    EXPECT_NE(out.find("\"signoff\""), std::string::npos);
+    EXPECT_NE(out.find("\"status\": \"FAIL\""), std::string::npos);
+    EXPECT_NE(out.find("\"reason\": \"1 unsuppressed error(s) found\""), std::string::npos);
 }
 
 TEST_F(ReportTest, SarifUriEncodedAndStartLineClamped) {

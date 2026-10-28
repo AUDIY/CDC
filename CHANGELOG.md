@@ -3,6 +3,12 @@ All notable changes to OpenCDC will be documented in this file.
 
 **[Unreleased]**
 
+**Changed**
+- **Professional text report redesign**: the text report is now sectioned and review-friendly — an `OpenCDC vX.Y.Z — CDC static analysis` header (top module, input type, input files), a `Findings` section with severity-grouped (ERROR → WARNING → INFO) numbered entries that show uppercase severity labels, rule ids **and rule names**, crossings, reasons, `file:line:col` locations and status tags, a human `Summary` block (status/findings/waived/suppressed/mc_suppressed), and a `Signoff` section under `--signoff`. The machine-readable `analysis_status=...` line still goes to stderr unchanged.
+- **ANSI colorization + `--color auto|always|never`**: text reports colorize severity (red/yellow/blue), section headers (cyan), signoff verdicts (green/red) and dim metadata. `auto` enables color only on a TTY, never into `--out` files, and honors `NO_COLOR`.
+- **JSON CLI output includes `coverage` and `signoff`**: the CLI now emits the full JSON envelope (the previously unwired reporter overload); keys are additive, existing consumers are unaffected.
+- **Terminal screenshots regenerated** (`docs/images/opencdc_*_terminal_report.png`) from real colored runs of the redesigned report.
+
 **Fixed**
 - **CDC004 crash on intermediate gated clocks**: a gated register in the middle of a crossing path set `gated_hit` but the reason string still assumed the gated node was src or dst, null-dereferencing. The reason now names `gated_hit`.
 - **`--profile` / `min_sync_stages` / `reconvergence_depth` were no-ops**: `apply_profile()` never ran in the analysis path, `CrossingAnalyzer::min_sync_stages_` was stored unused, and reconvergence BFS was hardcoded to 3 hops. Profiles and YAML knobs now take effect (a 2FF under `asic_signoff` stays CDC001 error).

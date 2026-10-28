@@ -21,8 +21,25 @@ struct ReportCounts {
     size_t multicycle_suppressed = 0;
 };
 
+// Optional run metadata for the human-readable text report. Empty fields are
+// omitted, so a default-constructed context renders a minimal report.
+struct ReportContext {
+    std::string version;
+    std::string top_module;
+    std::vector<std::string> input_files;
+    std::string analysis_status = "complete";
+    std::string input_type;  // "rtl" / "netlist" / empty
+    bool show_signoff = false;
+    analysis::SignoffResult signoff;
+};
+
 class Reporter {
    public:
+    // ANSI colorization for the text report (off by default; main.cpp enables
+    // it based on --color / isatty / NO_COLOR).
+    void set_color(bool enabled) { color_ = enabled; }
+    bool color() const { return color_; }
+
     // `input_type` is optional metadata ("rtl" or "netlist"). It is emitted as
     // a top-level "input_type" field only when it equals "netlist", so RTL
     // reports remain byte-identical to previous releases.
@@ -37,6 +54,8 @@ class Reporter {
     void report_text(const std::vector<cdc::Finding>& findings, std::ostream& os,
                      const std::string& analysis_status = "complete",
                      const std::string& input_type = "") const;
+    void report_text(const std::vector<cdc::Finding>& findings, std::ostream& os,
+                     const ReportContext& ctx) const;
     void report_summary(const std::vector<cdc::Finding>& findings, std::ostream& os,
                         const std::string& analysis_status = "complete") const;
 
@@ -47,6 +66,9 @@ class Reporter {
     bool has_unsuppressed_errors(const std::vector<cdc::Finding>& findings) const;
 
     static std::vector<cdc::Finding> sorted_findings(const std::vector<cdc::Finding>& findings);
+
+   private:
+    bool color_ = false;
 };
 
 }  // namespace opencdc::report

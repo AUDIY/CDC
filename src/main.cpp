@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -6,6 +7,12 @@
 #include <string>
 #include <system_error>
 #include <vector>
+
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 #include "analysis/analyzer.h"
 #include "analysis/signoff.h"
@@ -40,6 +47,7 @@ static void print_usage(const char* prog) {
         << "  --false-path <s:d>   False path (e.g., top.src:top.dst). Repeatable.\n"
         << "  --jobs <n>           Number of threads for parallel analysis (0 = auto)\n"
         << "  --signoff            Print signoff status; exit 1 on Fail/Incomplete/Error\n"
+        << "  --color <mode>       Colorize text output: auto (default), always, never\n"
         << "  --profile <name>     Use methodology profile "
            "(default/strict/asic_signoff/fpga/ip_development/soc_integration)\n"
         << "  --incdir <dir>       Add Verilog include directory. Repeatable.\n"
@@ -64,6 +72,28 @@ static void print_usage(const char* prog) {
         << "\nGeneral:\n"
         << "  --version            Show version information\n"
         << "  --help               Show this help message\n";
+}
+
+static bool stream_is_tty(std::FILE* f) {
+#ifdef _WIN32
+    return _isatty(_fileno(f)) == 1;
+#else
+    return isatty(fileno(f)) == 1;
+#endif
+}
+
+// Decide whether ANSI color should be emitted for the text report.
+static bool resolve_color_enabled(const std::string& mode, bool to_file) {
+    if (mode == "always")
+        return true;
+    if (mode == "never")
+        return false;
+    // auto: only on a real terminal, and never into --out files.
+    if (to_file)
+        return false;
+    if (std::getenv("NO_COLOR") != nullptr)
+        return false;
+    return stream_is_tty(stdout);
 }
 
 static int parse_args(int argc, const char* argv[], CheckOptions& opts) {
@@ -141,6 +171,13 @@ static int parse_args(int argc, const char* argv[], CheckOptions& opts) {
             }
         } else if (arg == "--signoff") {
             opts.signoff_mode = true;
+        } else if (arg == "--color" && i + 1 < argc) {
+            opts.color_mode = argv[++i];
+            if (opts.color_mode != "auto" && opts.color_mode != "always" &&
+                opts.color_mode != "never") {
+                std::cerr << "Error: --color supports auto|always|never\n";
+                return -1;
+            }
         } else if (arg == "--profile" && i + 1 < argc) {
             opts.profile = argv[++i];
         } else if ((arg == "--incdir" || arg == "+incdir") && i + 1 < argc) {
@@ -209,7 +246,8 @@ static int parse_args(int argc, const char* argv[], CheckOptions& opts) {
                    arg == "--jobs" || arg == "--profile" || arg == "--incdir" || arg == "+incdir" ||
                    arg == "--define" || arg == "+define" || arg == "--save-baseline" ||
                    arg == "--compare-baseline" || arg == "--false-path" || arg == "--input-type" ||
-                   arg == "--cell-map" || arg == "--max-nodes" || arg == "--max-edges") {
+                   arg == "--cell-map" || arg == "--max-nodes" || arg == "--max-edges" ||
+                   arg == "--color") {
             std::cerr << "Error: option '" << arg << "' requires a value\n";
             return -1;
         } else {
@@ -497,7 +535,16 @@ int run(int argc, const char* argv[]) {
     }
 
     if (opts.format == "text") {
-        reporter.report_text(findings, *out, analysis.analysis_status, analysis.input_type);
+        report::ReportContext ctx;
+        ctx.version = version_string();
+        ctx.top_module = opts.top_module;
+        ctx.input_files = opts.input_files;
+        ctx.analysis_status = analysis.analysis_status;
+        ctx.input_type = analysis.input_type;
+        ctx.show_signoff = opts.signoff_mode;
+        ctx.signoff = analysis.signoff;
+        reporter.set_color(resolve_color_enabled(opts.color_mode, out != &std::cout));
+        reporter.report_text(findings, *out, ctx);
         reporter.report_summary(findings, std::cerr, analysis.analysis_status);
     } else if (opts.format == "sarif") {
         report::SarifReporter sarif_reporter;
@@ -518,7 +565,8 @@ int run(int argc, const char* argv[]) {
             std::cerr << "HTML report generated in " << html_opts.output_dir << "/\n";
         }
     } else {
-        reporter.report_json(findings, *out, analysis.analysis_status, analysis.input_type);
+        reporter.report_json(findings, analysis.coverage, analysis.signoff, *out,
+                             analysis.analysis_status, analysis.input_type);
     }
 
     if (out == &out_file) {

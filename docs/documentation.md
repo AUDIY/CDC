@@ -125,6 +125,8 @@ Options:
   --waiver <file>           Waiver file
   --constraints <file>      Clock constraints file (SDC or YAML)
   --format <fmt>           Output format: json, text, html, sarif (default: json)
+  --color <mode>           Colorize text output: auto (default), always, never
+                           (auto = TTY only; honors NO_COLOR; never colored into --out files)
   --incdir <dir>           Add Verilog include directory
   --define <NAME[=V]>      Predefine a macro
   --out <file>              Write report to file (default: stdout)

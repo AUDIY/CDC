@@ -2,9 +2,93 @@
 
 #include <algorithm>
 
+#include <string>
+#include <vector>
+
 #include "clock/relationship.h"
 
 namespace opencdc::report {
+
+namespace {
+
+// ANSI styles for the text report. Emitted only when Reporter::color() is on.
+constexpr const char* kReset = "\033[0m";
+constexpr const char* kBold = "\033[1m";
+constexpr const char* kDim = "\033[2m";
+constexpr const char* kRed = "\033[1;31m";
+constexpr const char* kYellow = "\033[1;33m";
+constexpr const char* kBlue = "\033[1;34m";
+constexpr const char* kGreen = "\033[1;32m";
+constexpr const char* kCyan = "\033[1;36m";
+
+int severity_rank(const std::string& sev) {
+    if (sev == "error")
+        return 0;
+    if (sev == "warning")
+        return 1;
+    if (sev == "info")
+        return 2;
+    return 3;
+}
+
+const char* severity_color(const std::string& sev) {
+    if (sev == "error")
+        return kRed;
+    if (sev == "warning")
+        return kYellow;
+    if (sev == "info")
+        return kBlue;
+    return "";
+}
+
+const char* severity_label(const std::string& sev) {
+    if (sev == "error")
+        return "ERROR";
+    if (sev == "warning")
+        return "WARNING";
+    if (sev == "info")
+        return "INFO";
+    return sev.c_str();
+}
+
+// "── Summary ─────────..." — fixed 60-column section rule.
+void write_section(std::ostream& os, const std::string& title, bool color) {
+    if (color)
+        os << kCyan;
+    os << "── " << title << " ";
+    const size_t used = 3 + title.size() + 1;
+    for (size_t i = used; i < 60; ++i)
+        os << "─";
+    if (color)
+        os << kReset;
+    os << "\n";
+}
+
+// "2 — 1 error, 1 warning" (omits zero buckets).
+std::string counts_phrase(const ReportCounts& c) {
+    std::string s = std::to_string(c.total);
+    std::vector<std::string> parts;
+    auto add = [&](size_t n, const char* one, const char* many) {
+        if (n > 0)
+            parts.push_back(std::to_string(n) + " " + (n == 1 ? one : many));
+    };
+    add(c.errors, "error", "errors");
+    add(c.warnings, "warning", "warnings");
+    add(c.waived, "waived", "waived");
+    add(c.suppressed, "suppressed", "suppressed");
+    add(c.multicycle_suppressed, "mc-suppressed", "mc-suppressed");
+    if (parts.empty())
+        return s;
+    s += " — ";
+    for (size_t i = 0; i < parts.size(); ++i) {
+        if (i > 0)
+            s += ", ";
+        s += parts[i];
+    }
+    return s;
+}
+
+}  // namespace
 
 std::string Reporter::escape_json(const std::string& s) {
     std::string out;
@@ -240,33 +324,104 @@ void Reporter::report_json(const std::vector<cdc::Finding>& findings, std::ostre
 void Reporter::report_text(const std::vector<cdc::Finding>& findings, std::ostream& os,
                            const std::string& analysis_status,
                            const std::string& input_type) const {
+    ReportContext ctx;
+    ctx.analysis_status = analysis_status;
+    ctx.input_type = input_type;
+    report_text(findings, os, ctx);
+}
+
+void Reporter::report_text(const std::vector<cdc::Finding>& findings, std::ostream& os,
+                           const ReportContext& ctx) const {
     auto sorted = sorted_findings(findings);
-    os << "Analysis status: " << analysis_status << "\n";
-    if (input_type == "netlist")
-        os << "Input type: netlist\n";
+    // Group by severity (errors, then warnings, then info) while preserving
+    // the file/line order inside each group.
+    std::stable_sort(sorted.begin(), sorted.end(), [](const cdc::Finding& a, const cdc::Finding& b) {
+        return severity_rank(a.severity) < severity_rank(b.severity);
+    });
+    const bool color = color_;
+    auto c = count(findings);
 
-    for (const auto& f : sorted) {
-        // clang-format off
-        os << f.severity << " [" << f.rule_id << "] " << f.source_reg_name << " ("
-           << f.source_domain << ")"
-           << " -> " << f.dest_reg_name << " (" << f.dest_domain << ")";
-        // clang-format on
-
-        if (f.waived)
-            os << " [WAIVED]";
-        if (f.suppressed_by_false_path)
-            os << " [FALSE_PATH]";
-        if (f.suppressed_by_multicycle)
-            os << " [MC:" << f.multicycle_cycles << "x suppressed]";
-        else if (f.has_multicycle_exception)
-            os << " [MC:" << f.multicycle_cycles << "x]";
-        if (f.clock_relationship != clock::ClockRelationship::Unknown) {
-            os << " [clock:" << clock::clock_relationship_name(f.clock_relationship) << "]";
+    // ── Header ────────────────────────────────────────────────────────────
+    if (!ctx.version.empty() || !ctx.top_module.empty()) {
+        os << (color ? kCyan : "") << "OpenCDC";
+        if (!ctx.version.empty())
+            os << " v" << ctx.version;
+        os << (color ? kReset : "") << " — CDC static analysis\n";
+        bool first = true;
+        os << "  ";
+        if (!ctx.top_module.empty()) {
+            os << "Top: " << ctx.top_module;
+            first = false;
         }
+        if (!ctx.input_type.empty()) {
+            if (!first)
+                os << " | ";
+            os << "Input: " << ctx.input_type;
+            first = false;
+        }
+        if (!ctx.input_files.empty()) {
+            if (!first)
+                os << " | ";
+            os << "Files:";
+            for (const auto& f : ctx.input_files)
+                os << " " << f;
+            first = false;
+        }
+        if (!first)
+            os << "\n";
+    }
+
+    // ── Findings ──────────────────────────────────────────────────────────
+    write_section(os, "Findings (" + counts_phrase(c) + ")", color);
+    if (sorted.empty())
+        os << "  No CDC findings.\n";
+
+    size_t n = 0;
+    for (const auto& f : sorted) {
+        ++n;
+        os << "  " << n << ". " << (color ? severity_color(f.severity) : "") << severity_label(f.severity)
+           << (color ? kReset : "") << "  " << (color ? kBold : "") << f.rule_id
+           << (color ? kReset : "");
+        if (!f.rule_name.empty())
+            os << "  " << f.rule_name;
+        os << "\n";
+
+        // clang-format off
+        os << "       " << f.source_reg_name << " (" << f.source_domain << ")"
+           << " -> " << f.dest_reg_name << " (" << f.dest_domain << ")\n";
+        // clang-format on
+        os << "       " << f.reason << "\n";
+
+        if (!f.safety_provenance.empty()) {
+            os << (color ? kDim : "") << "       provenance: " << f.safety_provenance
+               << (color ? kReset : "") << "\n";
+        }
+
+        if (!f.source_loc.file.empty()) {
+            os << (color ? kDim : "") << "       at " << f.source_loc.file << ":" << f.source_loc.line;
+            if (f.source_loc.col > 0)
+                os << ":" << f.source_loc.col;
+            os << (color ? kReset : "") << "\n";
+        }
+
+        std::string tags;
+        auto add_tag = [&tags](const std::string& t) {
+            tags += tags.empty() ? "[" + t + "]" : " [" + t + "]";
+        };
+        if (f.waived)
+            add_tag("WAIVED");
+        if (f.suppressed_by_false_path)
+            add_tag("FALSE_PATH");
+        if (f.suppressed_by_multicycle)
+            add_tag("MC:" + std::to_string(f.multicycle_cycles) + "x suppressed");
+        else if (f.has_multicycle_exception)
+            add_tag("MC:" + std::to_string(f.multicycle_cycles) + "x");
+        if (f.clock_relationship != clock::ClockRelationship::Unknown)
+            add_tag(std::string("clock:") + clock::clock_relationship_name(f.clock_relationship));
         if (f.multi_bit_type != cdc::MultiBitCrossingType::None) {
             const char* mbt_name = multi_bit_type_name(f.multi_bit_type);
             if (mbt_name)
-                os << " [" << mbt_name << "]";
+                add_tag(mbt_name);
         }
         if (f.safety_status != cdc::SafetyStatus::Unknown) {
             const char* tag = "";
@@ -286,21 +441,15 @@ void Reporter::report_text(const std::vector<cdc::Finding>& findings, std::ostre
                 default:
                     break;
             }
-            os << " [" << tag << "]";
+            if (tag[0] != '\0')
+                add_tag(tag);
         }
-
-        os << "\n  " << f.reason << "\n";
-
-        if (!f.safety_provenance.empty()) {
-            os << "  provenance: " << f.safety_provenance << "\n";
-        }
-
-        if (!f.source_loc.file.empty()) {
-            os << "  at " << f.source_loc.file << ":" << f.source_loc.line << "\n";
+        if (!tags.empty()) {
+            os << (color ? kDim : "") << "       " << tags << (color ? kReset : "") << "\n";
         }
 
         if (f.waived && !f.waiver_justification.empty()) {
-            os << "  waiver: " << f.waiver_justification;
+            os << "       waiver: " << f.waiver_justification;
             if (!f.waiver_owner.empty())
                 os << " (" << f.waiver_owner << ")";
             if (!f.waiver_ticket.empty())
@@ -309,9 +458,40 @@ void Reporter::report_text(const std::vector<cdc::Finding>& findings, std::ostre
         }
     }
 
-    if (analysis_status == "incomplete") {
-        os << "\nWARNING: Analysis incomplete — some crossings may be missed due to path "
-              "traversal truncation.\n";
+    if (ctx.analysis_status == "incomplete") {
+        os << "\n" << (color ? kYellow : "")
+           << "WARNING: Analysis incomplete — some crossings may be missed due to path "
+              "traversal truncation."
+           << (color ? kReset : "") << "\n";
+    }
+
+    // ── Summary ───────────────────────────────────────────────────────────
+    write_section(os, "Summary", color);
+    os << "  status         " << ctx.analysis_status << "\n";
+    os << "  findings       " << counts_phrase(c) << "\n";
+    os << "  waived         " << c.waived << "\n";
+    os << "  suppressed     " << c.suppressed << " (false_path)\n";
+    os << "  mc_suppressed  " << c.multicycle_suppressed << "\n";
+
+    // ── Signoff ───────────────────────────────────────────────────────────
+    if (ctx.show_signoff) {
+        write_section(os, "Signoff", color);
+        const char* sc = "";
+        switch (ctx.signoff.status) {
+            case analysis::SignoffStatus::Pass:
+            case analysis::SignoffStatus::PassWithWaivers:
+                sc = kGreen;
+                break;
+            case analysis::SignoffStatus::Fail:
+            case analysis::SignoffStatus::Error:
+                sc = kRed;
+                break;
+            case analysis::SignoffStatus::Incomplete:
+                sc = kYellow;
+                break;
+        }
+        os << "  " << (color ? sc : "") << analysis::signoff_status_name(ctx.signoff.status)
+           << (color ? kReset : "") << " — " << ctx.signoff.reason << "\n";
     }
 }
 
