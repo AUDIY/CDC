@@ -1,7 +1,6 @@
 #include "report/report.h"
 
 #include <algorithm>
-
 #include <string>
 #include <vector>
 
@@ -335,9 +334,10 @@ void Reporter::report_text(const std::vector<cdc::Finding>& findings, std::ostre
     auto sorted = sorted_findings(findings);
     // Group by severity (errors, then warnings, then info) while preserving
     // the file/line order inside each group.
-    std::stable_sort(sorted.begin(), sorted.end(), [](const cdc::Finding& a, const cdc::Finding& b) {
-        return severity_rank(a.severity) < severity_rank(b.severity);
-    });
+    std::stable_sort(sorted.begin(), sorted.end(),
+                     [](const cdc::Finding& a, const cdc::Finding& b) {
+                         return severity_rank(a.severity) < severity_rank(b.severity);
+                     });
     const bool color = color_;
     auto c = count(findings);
 
@@ -379,9 +379,9 @@ void Reporter::report_text(const std::vector<cdc::Finding>& findings, std::ostre
     size_t n = 0;
     for (const auto& f : sorted) {
         ++n;
-        os << "  " << n << ". " << (color ? severity_color(f.severity) : "") << severity_label(f.severity)
-           << (color ? kReset : "") << "  " << (color ? kBold : "") << f.rule_id
-           << (color ? kReset : "");
+        os << "  " << n << ". " << (color ? severity_color(f.severity) : "")
+           << severity_label(f.severity) << (color ? kReset : "") << "  " << (color ? kBold : "")
+           << f.rule_id << (color ? kReset : "");
         if (!f.rule_name.empty())
             os << "  " << f.rule_name;
         os << "\n";
@@ -398,7 +398,8 @@ void Reporter::report_text(const std::vector<cdc::Finding>& findings, std::ostre
         }
 
         if (!f.source_loc.file.empty()) {
-            os << (color ? kDim : "") << "       at " << f.source_loc.file << ":" << f.source_loc.line;
+            os << (color ? kDim : "") << "       at " << f.source_loc.file << ":"
+               << f.source_loc.line;
             if (f.source_loc.col > 0)
                 os << ":" << f.source_loc.col;
             os << (color ? kReset : "") << "\n";
@@ -459,7 +460,8 @@ void Reporter::report_text(const std::vector<cdc::Finding>& findings, std::ostre
     }
 
     if (ctx.analysis_status == "incomplete") {
-        os << "\n" << (color ? kYellow : "")
+        os << "\n"
+           << (color ? kYellow : "")
            << "WARNING: Analysis incomplete — some crossings may be missed due to path "
               "traversal truncation."
            << (color ? kReset : "") << "\n";

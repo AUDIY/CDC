@@ -37,8 +37,12 @@ class Reporter {
    public:
     // ANSI colorization for the text report (off by default; main.cpp enables
     // it based on --color / isatty / NO_COLOR).
-    void set_color(bool enabled) { color_ = enabled; }
-    bool color() const { return color_; }
+    void set_color(bool enabled) {
+        color_ = enabled;
+    }
+    bool color() const {
+        return color_;
+    }
 
     // `input_type` is optional metadata ("rtl" or "netlist"). It is emitted as
     // a top-level "input_type" field only when it equals "netlist", so RTL
