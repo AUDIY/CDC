@@ -468,8 +468,7 @@ void Reporter::report_text(const std::vector<cdc::Finding>& findings, std::ostre
             }
         }
         os << "\n"
-           << (color ? kYellow : "")
-           << "WARNING: Analysis incomplete — "
+           << (color ? kYellow : "") << "WARNING: Analysis incomplete — "
            << (truncated ? "some crossings may be missed due to path traversal truncation."
                          : "unknown sequential cells were not modeled; some crossings may be "
                            "missed.")

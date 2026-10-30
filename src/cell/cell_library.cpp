@@ -199,7 +199,7 @@ CellLibrary CellLibrary::with_defaults() {
     lib.add(mk("$_SDFFSR_*", CellKind::DffSetReset));
     lib.add(mk("$_DFFS_*", CellKind::DffSetReset));
     lib.add(mk("$_DFFR_*", CellKind::DffReset));
-    lib.add(mk("$_ALDFF_*", CellKind::Dff));        // async load: LD/AD unmodelled
+    lib.add(mk("$_ALDFF_*", CellKind::Dff));         // async load: LD/AD unmodelled
     lib.add(mk("$_ALDFFE_*", CellKind::DffEnable));  // async load + enable
     lib.add(mk("$_DLATCH_*", CellKind::Latch));
     lib.add(mk("$_AND_*", CellKind::Comb));

@@ -103,12 +103,13 @@ AnalysisResult Analyzer::run(const AnalysisRequest& request) {
         result.analysis_status = "incomplete";
         CoverageEngine coverage_engine;
         result.coverage = coverage_engine.compute(result.findings, result.analysis_status);
-        coverage_engine.compute_crossing_coverage(
-            result.coverage, result.graph, result.domains.domains, result.domains.register_to_domain);
+        coverage_engine.compute_crossing_coverage(result.coverage, result.graph,
+                                                  result.domains.domains,
+                                                  result.domains.register_to_domain);
         SignoffEngine signoff_engine;
-        result.signoff = signoff_engine.evaluate(
-            result.findings, result.analysis_status, config::Config{},
-            request.profile.empty() ? "default" : request.profile);
+        result.signoff =
+            signoff_engine.evaluate(result.findings, result.analysis_status, config::Config{},
+                                    request.profile.empty() ? "default" : request.profile);
     }
     return result;
 }
