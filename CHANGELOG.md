@@ -4,6 +4,12 @@ All notable changes to OpenCDC will be documented in this file.
 **[Unreleased]**
 
 **Changed**
+- **Version bump to 1.0.0**: tool version string (`--version`, report header, SARIF, docs) aligned to 1.0.0.
+
+**Fixed**
+- **Yosys sync-reset-with-enable flops were unmapped**: `$_SDFFE_*`, `$_SDFFCE_*` (and the related `$_DFFSR_*`/`$_SDFFSR_*`/`$_DFFS_*`/`$_DFFR_*`/`$_ALDFF_*`/`$_ALDFFE_*` families) fell through to `Unknown`, were modeled as opaque combinational, and the flops — plus every crossing through them — silently vanished from the analysis while the summary still reported `status complete`. The built-in classifier now recognizes these families as sequential. Netlists that use them no longer emit the `unmapped cell type(s)` warning and keep their registers in the graph.
+- **Unknown sequential-like cells no longer produce a false "complete"**: when the netlist frontend meets an unmapped cell whose name looks sequential (DFF/LATCH/FF/REG…), it flags the run; `analysis_status` becomes `incomplete` and `--signoff` reports `INCOMPLETE — Analysis incomplete — unknown sequential cells not modeled` instead of a clean complete/PASS. New fixture `unknown_sequential_cell.v` + regression test; new `yosys_sdffe.v` fixture asserts `$_SDFFE_PP0P_`/`$_SDFFCE_PN0P_` classify and appear as registers.
+
 - **README honesty pass**: lead with static-vs-formal scope, a verified-vs-guessed table, measured known limitations (from `benchmarks/expected/manifest.json` `known_gaps`), and a real terminal screenshot. CDC005/CDC013 called out as optional methodology checks. Features list moved below usage. `.commandcode/` added to `.gitignore`.
 - **Professional text report redesign**: the text report is now sectioned and review-friendly — an `OpenCDC vX.Y.Z — CDC static analysis` header (top module, input type, input files), a `Findings` section with severity-grouped (ERROR → WARNING → INFO) numbered entries that show uppercase severity labels, rule ids **and rule names**, crossings, reasons, `file:line:col` locations and status tags, a human `Summary` block (status/findings/waived/suppressed/mc_suppressed), and a `Signoff` section under `--signoff`. The machine-readable `analysis_status=...` line still goes to stderr unchanged.
 - **ANSI colorization + `--color auto|always|never`**: text reports colorize severity (red/yellow/blue), section headers (cyan), signoff verdicts (green/red) and dim metadata. `auto` enables color only on a TTY, never into `--out` files, and honors `NO_COLOR`.

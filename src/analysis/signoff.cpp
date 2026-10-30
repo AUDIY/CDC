@@ -39,7 +39,15 @@ SignoffResult SignoffEngine::evaluate(const std::vector<cdc::Finding>& findings,
 
     if (analysis_status == "incomplete") {
         result.status = SignoffStatus::Incomplete;
-        result.reason = "Analysis incomplete — path traversal truncated";
+        bool truncated = false;
+        for (const auto& f : findings) {
+            if (f.rule_id == "CDC010") {
+                truncated = true;
+                break;
+            }
+        }
+        result.reason = truncated ? "Analysis incomplete — path traversal truncated"
+                                  : "Analysis incomplete — unknown sequential cells not modeled";
         return result;
     }
 

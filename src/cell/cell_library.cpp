@@ -186,6 +186,21 @@ CellLibrary CellLibrary::with_defaults() {
     lib.add(mk("$_DFF_P?1_", CellKind::DffReset));
     lib.add(mk("$_DFF_N?0_", CellKind::DffReset));
     lib.add(mk("$_DFF_N?1_", CellKind::DffReset));
+    // Sync-reset + enable flops ($_SDFFE_PP0P_, $_SDFFCE_PN0P_, ...): real
+    // sequential elements with both an R and an E pin. Classify as DffEnable
+    // (the adapter binds R via the generic reset-pin candidates regardless).
+    // Without these entries the cells fell through to Unknown, were modeled as
+    // opaque combinational, and the flops — and every crossing through them —
+    // silently vanished from the analysis while status still reported complete.
+    lib.add(mk("$_SDFFE_*", CellKind::DffEnable));
+    lib.add(mk("$_SDFFCE_*", CellKind::DffEnable));
+    // Set/reset flops and async-load flops.
+    lib.add(mk("$_DFFSR_*", CellKind::DffSetReset));
+    lib.add(mk("$_SDFFSR_*", CellKind::DffSetReset));
+    lib.add(mk("$_DFFS_*", CellKind::DffSetReset));
+    lib.add(mk("$_DFFR_*", CellKind::DffReset));
+    lib.add(mk("$_ALDFF_*", CellKind::Dff));        // async load: LD/AD unmodelled
+    lib.add(mk("$_ALDFFE_*", CellKind::DffEnable));  // async load + enable
     lib.add(mk("$_DLATCH_*", CellKind::Latch));
     lib.add(mk("$_AND_*", CellKind::Comb));
     lib.add(mk("$_NAND_*", CellKind::Comb));

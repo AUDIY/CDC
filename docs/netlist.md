@@ -94,6 +94,7 @@ netlists work with no cell map at all:
   too: `and`/`or`/`not`/`nand`/`nor`/`xor`/`xnor`/`buf`/`bufif0`/`bufif1`/
   `notif0`/`notif1`/`pullup`/`pulldown` instantiations.
 - Yosys generic gate-level cells (`$_DFF_*`, `$_DFFE_*`, `$_DFF_P?0_`,
+  `$_SDFFE_*`, `$_SDFFCE_*`, `$_DFFSR_*`, `$_ALDFF_*`,
   `$_AND_*`, `$_MUX_*`, `$_NOT_*`, `$_BUF_*`, ...) so post-Yosys output
   classifies out of the box.
 - Low-power cells: `*ISO*` → isolation clamps (transparent combinational),

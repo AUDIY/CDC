@@ -208,5 +208,26 @@ TEST(CellLibraryTest, ClassifiesYosysGenericCells) {
     EXPECT_EQ(lib.classify("$_DFF_NN1_"), CellKind::DffReset);
 }
 
+TEST(CellLibraryTest, ClassifiesYosysSyncResetEnableFamilies) {
+    // $_SDFFE_*/$_SDFFCE_* are sync-reset-with-enable flops emitted by yosys
+    // for `always @(posedge clk) if (en) q <= r ? val : d`. They must classify
+    // as sequential — never Unknown (which models them as opaque combinational
+    // and silently drops every crossing through them).
+    CellLibrary lib = CellLibrary::with_defaults();
+    EXPECT_EQ(lib.classify("$_SDFFE_PP0P_"), CellKind::DffEnable);
+    EXPECT_EQ(lib.classify("$_SDFFE_PN0P_"), CellKind::DffEnable);
+    EXPECT_EQ(lib.classify("$_SDFFCE_PN0P_"), CellKind::DffEnable);
+    EXPECT_EQ(lib.classify("$_SDFFCE_PP1N_"), CellKind::DffEnable);
+    EXPECT_EQ(lib.classify("$_SDFF_PN0_"), CellKind::Dff);
+    EXPECT_EQ(lib.classify("$_SDFF_PP1_"), CellKind::Dff);
+    // Set/reset and async-load families.
+    EXPECT_EQ(lib.classify("$_DFFSR_PPP_"), CellKind::DffSetReset);
+    EXPECT_EQ(lib.classify("$_SDFFSR_PPP_"), CellKind::DffSetReset);
+    EXPECT_EQ(lib.classify("$_DFFS_PN_"), CellKind::DffSetReset);
+    EXPECT_EQ(lib.classify("$_DFFR_PN_"), CellKind::DffReset);
+    EXPECT_EQ(lib.classify("$_ALDFF_PN_"), CellKind::Dff);
+    EXPECT_EQ(lib.classify("$_ALDFFE_PPP_"), CellKind::DffEnable);
+}
+
 }  // namespace
 }  // namespace opencdc::cell

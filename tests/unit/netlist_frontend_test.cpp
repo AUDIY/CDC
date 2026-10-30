@@ -374,5 +374,50 @@ TEST(NetlistFrontendTest, UnknownCellTreatedAsOpaqueNotSafe) {
     EXPECT_TRUE(warned);
 }
 
+TEST(NetlistFrontendTest, UnknownSequentialLikeCellForcesIncompleteStatus) {
+    // An unmapped cell whose name looks sequential (VENDOR_FF_X1) is very
+    // likely a flop; modeling it as opaque combinational drops its crossings.
+    // Status must be "incomplete" (and signoff INCOMPLETE) so a reviewer
+    // cannot mistake a hole in the graph for a clean run.
+    AnalysisRequest req;
+    req.input_files = {fx("unknown_sequential_cell.v")};
+    req.top_module = "unknown_sequential_cell";
+    req.input_type = InputType::Netlist;
+    Analyzer analyzer;
+    auto result = analyzer.run(req);
+    ASSERT_TRUE(result.ok);
+    EXPECT_EQ(result.analysis_status, "incomplete");
+    EXPECT_EQ(result.signoff.status, SignoffStatus::Incomplete);
+    bool warned = false;
+    for (const auto& w : result.warnings) {
+        if (w.find("sequential-like") != std::string::npos)
+            warned = true;
+    }
+    EXPECT_TRUE(warned);
+}
+
+TEST(NetlistFrontendTest, MappedYosysSyncResetEnableCellsAreNotUnmapped) {
+    // $_SDFFE_*/$_SDFFCE_* are built-in; a netlist using them must produce
+    // neither the unmapped-cell warning nor an incomplete status.
+    AnalysisRequest req;
+    req.input_files = {fx("yosys_sdffe.v")};
+    req.top_module = "yosys_sdffe";
+    req.input_type = InputType::Netlist;
+    Analyzer analyzer;
+    auto result = analyzer.run(req);
+    ASSERT_TRUE(result.ok) << (result.errors.empty() ? "" : result.errors.front());
+    EXPECT_EQ(result.analysis_status, "complete");
+    for (const auto& w : result.warnings) {
+        EXPECT_EQ(w.find("unmapped cell"), std::string::npos) << w;
+    }
+    // The two flops must exist as registers in the graph (not dropped).
+    size_t regs = 0;
+    for (const auto& n : result.graph.nodes()) {
+        if (n.kind == ir::NodeKind::Register)
+            ++regs;
+    }
+    EXPECT_EQ(regs, 2u);
+}
+
 }  // namespace
 }  // namespace opencdc::analysis

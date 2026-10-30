@@ -460,10 +460,19 @@ void Reporter::report_text(const std::vector<cdc::Finding>& findings, std::ostre
     }
 
     if (ctx.analysis_status == "incomplete") {
+        bool truncated = false;
+        for (const auto& f : findings) {
+            if (f.rule_id == "CDC010") {
+                truncated = true;
+                break;
+            }
+        }
         os << "\n"
            << (color ? kYellow : "")
-           << "WARNING: Analysis incomplete — some crossings may be missed due to path "
-              "traversal truncation."
+           << "WARNING: Analysis incomplete — "
+           << (truncated ? "some crossings may be missed due to path traversal truncation."
+                         : "unknown sequential cells were not modeled; some crossings may be "
+                           "missed.")
            << (color ? kReset : "") << "\n";
     }
 

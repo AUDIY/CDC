@@ -1,4 +1,4 @@
-# OpenCDC v0.4.1 Documentation
+# OpenCDC v1.0.0 Documentation
 
 ## Table of Contents
 

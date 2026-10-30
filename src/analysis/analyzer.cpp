@@ -88,11 +88,28 @@ AnalysisResult Analyzer::run(const AnalysisRequest& request) {
     }
     ir::Graph graph = std::move(fe_result.graph);
     std::vector<std::string> fe_warnings = std::move(fe_result.warnings);
+    bool incomplete_frontend = fe_result.suspected_sequential_unknown;
 
     AnalysisResult result = run_on_graph(std::move(graph), request, std::move(cfg));
     // Frontend warnings (e.g. skipped unknown-clock blocks) travel with the result.
     result.warnings.insert(result.warnings.begin(), fe_warnings.begin(), fe_warnings.end());
     result.input_type = fe_result.input_type;
+
+    // Unmapped sequential-like cells were modeled as opaque combinational:
+    // their flops and crossings are missing, so the analysis cannot claim to
+    // be complete. Downgrade status (and re-evaluate coverage/signoff) so
+    // --signoff reports INCOMPLETE instead of a false "complete"/PASS.
+    if (incomplete_frontend && result.analysis_status == "complete") {
+        result.analysis_status = "incomplete";
+        CoverageEngine coverage_engine;
+        result.coverage = coverage_engine.compute(result.findings, result.analysis_status);
+        coverage_engine.compute_crossing_coverage(
+            result.coverage, result.graph, result.domains.domains, result.domains.register_to_domain);
+        SignoffEngine signoff_engine;
+        result.signoff = signoff_engine.evaluate(
+            result.findings, result.analysis_status, config::Config{},
+            request.profile.empty() ? "default" : request.profile);
+    }
     return result;
 }
 

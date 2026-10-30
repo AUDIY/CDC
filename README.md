@@ -55,11 +55,9 @@ opencdc check design.sv --top top --disable-rule CDC005 --disable-rule CDC013
 
 ## Example output
 
-Text report from a real run (`--format text --signoff --color always`):
-
-![OpenCDC terminal report](docs/images/opencdc_terminal_report.png)
-
-A netlist run is in [docs/images/opencdc_netlist_terminal_report.png](docs/images/opencdc_netlist_terminal_report.png).
+Text report from a real run (`--format text --signoff --color always`) is
+sectioned into Findings (severity-grouped, with rule ids, crossings, reasons,
+and `file:line` locations), a human Summary, and a Signoff verdict.
 JSON, SARIF, and interactive HTML are also available (`--format json|sarif|html`).
 
 ## Building

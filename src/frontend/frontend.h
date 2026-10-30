@@ -47,6 +47,12 @@ struct FrontendResult {
     bool ok = false;
     // Actual frontend used ("rtl"/"netlist") — surfaced in reports.
     std::string input_type;
+    // Netlist frontend: an unmapped cell type whose name looks sequential
+    // (DFF/LATCH/FF/...) was treated as opaque combinational. The flop — and
+    // every crossing through it — is missing from the graph, so the analysis
+    // cannot be "complete"; the analyzer downgrades status to "incomplete"
+    // (signoff INCOMPLETE) instead of silently under-reporting.
+    bool suspected_sequential_unknown = false;
 };
 
 // Common contract for all language frontends (slang RTL, gate-level netlist).

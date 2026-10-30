@@ -52,6 +52,23 @@ LogicType logic_for_gate(const std::string& g) {
     return LogicType::Unknown;
 }
 
+// Heuristic: does an unmapped cell type name look like a sequential element?
+// Used to force analysis_status=incomplete for signoff rather than silently
+// modeling the cell as opaque combinational (which would hide crossings).
+// Matches the substrings every major Yosys/vendor flop/latch family carries:
+// "FF" covers DFF/SDFFE/SDFFCE/ALDFF/DFFSR/RSDFF/TFF/JKFF/..., "LATCH"/"LAT"
+// covers level-sensitive cells, "REG" covers *REG_* library flops. Purely
+// combinational names (AND/OR/XOR/MUX/AOI/OAI/BUF/INV/CLKGATE/ISO) never
+// match, so the heuristic cannot fire on known comb cells.
+bool looks_sequential_name(const std::string& cell_type) {
+    static const char* kNeedles[] = {"FF", "LATCH", "LAT", "REG"};
+    for (const char* n : kNeedles) {
+        if (cell_type.find(n) != std::string::npos)
+            return true;
+    }
+    return false;
+}
+
 // Pin-role candidate names, in preference order. Used when the cell library
 // entry doesn't specify explicit pin names.
 const std::vector<std::string>& clock_pins() {
@@ -153,6 +170,13 @@ class GraphBuilder {
 
     void build(std::vector<std::string>& warnings);
 
+    // True when an unmapped cell with a sequential-like name was dropped as
+    // opaque combinational during build (surfaced on FrontendResult so the
+    // analyzer can force status=incomplete for signoff).
+    bool suspected_sequential_unknown() const {
+        return suspected_sequential_unknown_;
+    }
+
    private:
     // Union-find over net names for `assign a = b` pass-throughs (ports pinned).
     std::string find(const std::string& x) {
@@ -218,6 +242,9 @@ class GraphBuilder {
     std::unordered_map<std::string, uint64_t> port_nodes_;
     std::unordered_map<std::string, uint64_t> net_nodes_;
     std::unordered_set<std::string> unknown_cells_;
+    // An unmapped cell whose name looks sequential (DFF/LATCH/FF/...) was
+    // treated as opaque combinational — the flop is missing from the graph.
+    bool suspected_sequential_unknown_ = false;
 };
 
 uint64_t GraphBuilder::port_node(const std::string& name) {
@@ -342,6 +369,25 @@ void GraphBuilder::build(std::vector<std::string>& warnings) {
             "netlist: unmapped cell type(s) treated as opaque combinational (add entries to the "
             "cell map to classify them): " +
             oss.str());
+        if (suspected_sequential_unknown_) {
+            std::ostringstream oss_seq;
+            bool first_seq = true;
+            for (const auto& c : unknown_cells_) {
+                if (!looks_sequential_name(c))
+                    continue;
+                if (!first_seq)
+                    oss_seq << ", ";
+                oss_seq << c;
+                first_seq = false;
+            }
+            if (!oss_seq.str().empty()) {
+                warnings.push_back(
+                    "netlist: unknown cell type(s) with sequential-like names treated as opaque "
+                    "combinational; crossings through these cells are missing from the analysis "
+                    "(add entries to the cell map): " +
+                    oss_seq.str());
+            }
+        }
     }
 }
 
@@ -397,6 +443,9 @@ void GraphBuilder::process_sequential(const Instance& inst, const cell::CellDef*
         warnings.push_back("netlist: sequential cell '" + inst.inst_name + "' (" + inst.cell_type +
                            ") has no identifiable clock pin; treated as opaque");
         unknown_cells_.insert(inst.cell_type);
+        // A classified-sequential cell that failed to bind its clock is still
+        // sequential — its crossings are missing, so signoff must be incomplete.
+        suspected_sequential_unknown_ = true;
         return;
     }
 
@@ -478,8 +527,15 @@ void GraphBuilder::process_icg(const Instance& inst, const cell::CellDef* def,
 
 void GraphBuilder::process_comb(const Instance& inst, const cell::CellDef* def, cell::CellKind kind,
                                 std::vector<std::string>& warnings) {
-    if (kind == cell::CellKind::Unknown)
+    if (kind == cell::CellKind::Unknown) {
         unknown_cells_.insert(inst.cell_type);
+        // An unmapped cell whose name looks sequential (DFF/LATCH/FF/...) is
+        // very likely a flop that will be modeled as opaque combinational —
+        // every crossing through it disappears. Flag it so signoff reports
+        // INCOMPLETE instead of a false "complete".
+        if (looks_sequential_name(inst.cell_type))
+            suspected_sequential_unknown_ = true;
+    }
 
     // Determine output pin (first matching output candidate) and inputs (rest).
     std::string out_pin = def ? def->output_pin : "";
@@ -683,6 +739,7 @@ FrontendResult NetlistAdapter::elaborate(const std::vector<std::string>& files,
     std::vector<std::string> build_warnings;
     builder.build(build_warnings);
     result.warnings.insert(result.warnings.end(), build_warnings.begin(), build_warnings.end());
+    result.suspected_sequential_unknown = builder.suspected_sequential_unknown();
 
     // RTL-to-netlist register name mapping, applied right after build and
     // BEFORE gray recovery/regrouping so bit groups merge under their RTL
